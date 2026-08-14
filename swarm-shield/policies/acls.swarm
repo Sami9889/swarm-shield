@@ -1,0 +1,35 @@
+// Allowlist private RFC1918 networks for internal tools.
+define acl "internal_allow" {
+    if $ip starts_with "10." {
+        allow
+    }
+    if $ip starts_with "172.16." {
+        allow
+    }
+    if $ip starts_with "192.168." {
+        allow
+    }
+    deny
+}
+
+// Block known bad ranges.
+define acl "block_bad_ranges" {
+    if $ip starts_with "127.0.0.1" {
+        deny
+    }
+    if $ip == "0.0.0.0" {
+        deny
+    }
+    allow
+}
+
+// Protect sensitive admin paths.
+define acl "admin_protection" {
+    if $path matches "^/admin/.*" {
+        if $header "X-Admin-Token" exists {
+            allow
+        }
+        deny
+    }
+    allow
+}

@@ -28,6 +28,7 @@ import (
 	"swarm-shield/internal/security"
 	"swarm-shield/internal/signaling"
 	"swarm-shield/internal/storage"
+	"swarm-shield/internal/lang"
 )
 
 var (
@@ -609,6 +610,12 @@ func main() {
 		auditLogger,
 	)
 	defer rateLimiter.Stop()
+
+	// Initialize SwarmScript policy engine.
+	policyRegistry := lang.NewRegistry()
+	if err := policyRegistry.LoadDir("./policies"); err != nil {
+		logger.Warn("failed to load SwarmScript policies", zap.Error(err))
+	}
 
 	// Initialize storage if enabled.
 	var storageErr error
