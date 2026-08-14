@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -141,7 +140,7 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	mux.Handle("/api/stats", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(statsHandler)))))))
 	mux.Handle("/ws", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(recovery(wsHandler))))))))
 	mux.Handle("/healthz", requestID(secureHeaders(cors(healthHandler))))
-	mux.Handle("/", requestID(secureHeaders(cors(http.FileServer(http.Dir("./public")))))
+	mux.Handle("/", requestID(secureHeaders(cors(http.FileServer(http.Dir("./public"))))))
 
 	return s
 }

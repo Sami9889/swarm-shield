@@ -95,7 +95,7 @@ func (l *Logger) Log(ctx context.Context, event *Event) {
 
 	// TODO: Persist to database for long-term retention.
 	_ = ctx
-	_ = json.Marshal(event)
+	_, _ = json.Marshal(event)
 }
 
 // LogLogin logs a login event.
