@@ -1,0 +1,38 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Swarm Shield",
+    "tags": ["swarm-shield"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Total Requests",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "swarm_total_requests",
+            "legendFormat": "Total Requests"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "P2P Hits",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "swarm_p2p_hits",
+            "legendFormat": "P2P Hits"
+          }
+        ]
+      }
+    ],
+    "schemaVersion": 39,
+    "version": 1
+  },
+  "folder": "",
+  "message": "Swarm Shield dashboard"
+}
