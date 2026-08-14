@@ -17,6 +17,7 @@ type RateLimiter struct {
 	ttl      time.Duration
 	audit    *audit.Logger
 	stopChan chan struct{}
+	stopOnce sync.Once
 }
 
 // tokenBucket represents a rate limit token bucket.
@@ -118,7 +119,9 @@ func (rl *RateLimiter) Reset() {
 
 // Stop stops the cleanup loop.
 func (rl *RateLimiter) Stop() {
-	close(rl.stopChan)
+	rl.stopOnce.Do(func() {
+		close(rl.stopChan)
+	})
 }
 
 // cleanupLoop periodically removes expired buckets.

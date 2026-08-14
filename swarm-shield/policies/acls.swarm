@@ -26,9 +26,20 @@ define acl "block_bad_ranges" {
 // Protect sensitive admin paths.
 define acl "admin_protection" {
     if $path matches "^/admin/.*" {
-        if $header "X-Admin-Token" exists {
+        if $header.authorization != "" {
             allow
         }
+        deny
+    }
+    allow
+}
+
+// API access control with authentication.
+define acl "api_access" {
+    if $header.authorization starts_with "Bearer" {
+        allow
+    }
+    if $path matches "^/api/data" {
         deny
     }
     allow

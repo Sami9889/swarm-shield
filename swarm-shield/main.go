@@ -584,7 +584,8 @@ func generateID() string {
 
 func main() {
 	// Initialize logger.
-	logger, err := zap.NewProduction()
+	var err error
+	logger, err = zap.NewProduction()
 	if err != nil {
 		log.Fatalf("[FATAL] failed to initialize logger: %v", err)
 	}
