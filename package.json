@@ -1,0 +1,35 @@
+{
+  "name": "swarm-shield",
+  "version": "1.0.0",
+  "description": "Production-grade WebRTC P2P swarm mesh with adaptive PoW DDoS protection",
+  "scripts": {
+    "dev": "go run swarm-shield/main.go",
+    "build": "docker build -t swarm-shield swarm-shield/",
+    "start": "docker run -p 8080:8080 swarm-shield",
+    "start:compose": "docker compose -f swarm-shield/deploy/docker-compose.yml up -d",
+    "stop:compose": "docker compose -f swarm-shield/deploy/docker-compose.yml down",
+    "test": "go test ./swarm-shield/... ",
+    "lint": "gofmt -w swarm-shield/ && go vet ./swarm-shield/... ",
+    "generate-api-key": "node -e \"console.log('swarm-' + require('crypto').randomBytes(24).toString('hex'))\"",
+    "helm:install": "helm install swarm-shield swarm-shield/deploy/helm/swarm-shield",
+    "helm:upgrade": "helm upgrade swarm-shield swarm-shield/deploy/helm/swarm-shield",
+    "helm:uninstall": "helm uninstall swarm-shield",
+    "openapi:validate": "npx redocly lint swarm-shield/openapi.yaml"
+  },
+  "keywords": [
+    "webrtc",
+    "p2p",
+    "ddos-protection",
+    "pow",
+    "swarm",
+    "api-gateway",
+    "enterprise",
+    "kubernetes",
+    "helm"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "go": "1.22"
+  }
+}
