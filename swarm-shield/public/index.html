@@ -3,20 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Swarm Shield Dashboard</title>
+    <title>Swarm Shield // Enterprise Console</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
         :root {
-            --bg-primary: #0a0e17;
-            --bg-secondary: #111827;
-            --bg-tertiary: #1f2937;
-            --text-primary: #f3f4f6;
-            --text-secondary: #9ca3af;
-            --accent: #10b981;
-            --accent-hover: #059669;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --border: #374151;
-            --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            --term-bg: #0d1117;
+            --term-surface: #161b22;
+            --term-border: #30363d;
+            --term-text: #c9d1d9;
+            --term-muted: #8b949e;
+            --term-green: #3fb950;
+            --term-cyan: #58a6ff;
+            --term-yellow: #d29922;
+            --term-red: #f85149;
+            --term-purple: #a371f7;
+            --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
         }
 
         * {
@@ -25,295 +27,505 @@
             box-sizing: border-box;
         }
 
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
+            font-family: var(--font-mono);
+            background: var(--term-bg);
+            color: var(--term-text);
+            font-size: 13px;
             line-height: 1.6;
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-
-        header {
+        .terminal {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 2rem;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 2rem;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 1440px;
+            margin: 0 auto;
         }
 
-        h1 {
-            font-size: 1.8rem;
-            font-weight: 700;
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1.25rem;
+            background: var(--term-surface);
+            border-bottom: 1px solid var(--term-border);
+            flex-shrink: 0;
+        }
+
+        .header-title {
             display: flex;
             align-items: center;
             gap: 0.75rem;
+            font-weight: 700;
+            font-size: 0.9rem;
         }
 
         .logo {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, var(--accent), #3b82f6);
-            border-radius: 10px;
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--term-green), var(--term-cyan));
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.5rem;
+            font-size: 0.9rem;
         }
 
-        .status-badge {
+        .header-meta {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 9999px;
-            font-size: 0.875rem;
+            gap: 1.25rem;
+            font-size: 0.75rem;
+            color: var(--term-muted);
         }
 
-        .status-dot {
-            width: 8px;
-            height: 8px;
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.2rem 0.6rem;
+            background: rgba(63, 185, 80, 0.1);
+            border: 1px solid rgba(63, 185, 80, 0.3);
+            color: var(--term-green);
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-pill::before {
+            content: "";
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
-            background: var(--accent);
+            background: var(--term-green);
             animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            50% { opacity: 0.4; }
         }
 
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: border-color 0.2s;
-        }
-
-        .card:hover {
-            border-color: var(--accent);
-        }
-
-        .card-title {
-            font-size: 0.75rem;
+        .auth-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: var(--text-secondary);
-            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid transparent;
         }
 
-        .card-value {
-            font-size: 2rem;
-            font-weight: 700;
-            font-family: var(--font-mono);
-            color: var(--accent);
+        .auth-pill.unauthenticated {
+            background: rgba(248, 81, 73, 0.1);
+            border-color: rgba(248, 81, 73, 0.3);
+            color: var(--term-red);
         }
 
-        .card-sub {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            margin-top: 0.25rem;
+        .auth-pill.authenticated {
+            background: rgba(63, 185, 80, 0.1);
+            border-color: rgba(63, 185, 80, 0.3);
+            color: var(--term-green);
         }
 
-        .panel {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
+        .auth-pill:hover {
+            filter: brightness(1.2);
         }
 
-        .panel-header {
+        /* Layout */
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .main {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
+            flex-direction: column;
+            overflow: hidden;
+            border-right: 1px solid var(--term-border);
         }
 
-        .panel-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
-
-        .peer-list {
+        .sidebar {
             display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--term-surface);
         }
 
-        .peer-tag {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.375rem 0.75rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 0.875rem;
-            font-family: var(--font-mono);
+        /* Stats */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 1px;
+            background: var(--term-border);
+            border-bottom: 1px solid var(--term-border);
+            flex-shrink: 0;
         }
 
-        .peer-tag .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--accent);
+        .stat {
+            background: var(--term-bg);
+            padding: 0.75rem 1rem;
         }
 
-        .log-terminal {
-            background: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1rem;
-            font-family: var(--font-mono);
-            font-size: 0.8rem;
-            line-height: 1.5;
-            max-height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
-
-        .log-entry {
+        .stat-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--term-muted);
             margin-bottom: 0.25rem;
         }
 
-        .log-time {
-            color: var(--text-secondary);
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--term-text);
+            font-variant-numeric: tabular-nums;
         }
 
-        .log-info {
-            color: var(--accent);
+        .stat-value.accent {
+            color: var(--term-cyan);
         }
 
-        .log-warn {
-            color: var(--warning);
+        /* Log Output */
+        .output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 1.25rem;
+            scroll-behavior: smooth;
         }
 
-        .log-error {
-            color: var(--danger);
+        .output::-webkit-scrollbar {
+            width: 6px;
         }
 
-        .actions {
-            display: flex;
-            gap: 1rem;
-            margin-top: 1.5rem;
+        .output::-webkit-scrollbar-track {
+            background: transparent;
         }
 
-        button {
-            padding: 0.625rem 1.25rem;
-            background: var(--accent);
-            color: #000;
-            border: none;
-            border-radius: 8px;
+        .output::-webkit-scrollbar-thumb {
+            background: var(--term-border);
+            border-radius: 3px;
+        }
+
+        .line {
+            margin-bottom: 0.35rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .line.system { color: var(--term-cyan); }
+        .line.info { color: var(--term-text); }
+        .line.success { color: var(--term-green); }
+        .line.warn { color: var(--term-yellow); }
+        .line.error { color: var(--term-red); }
+        .line.p2p { color: var(--term-purple); }
+        .line.pow { color: var(--term-yellow); }
+        .line.dim { color: var(--term-muted); }
+        .line.command { color: var(--term-text); }
+        .line.command::before {
+            content: "$ ";
+            color: var(--term-muted);
+        }
+
+        .timestamp {
+            color: var(--term-muted);
+            margin-right: 0.75rem;
+            font-size: 0.75rem;
+        }
+
+        /* Sidebar Sections */
+        .sidebar-section {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--term-border);
+        }
+
+        .sidebar-section:last-child {
+            border-bottom: none;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .sidebar-title {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--term-muted);
+            margin-bottom: 0.75rem;
             font-weight: 600;
+        }
+
+        .peer-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.25rem 0.5rem;
+            background: rgba(88, 166, 255, 0.08);
+            border: 1px solid rgba(88, 166, 255, 0.2);
+            color: var(--term-cyan);
+            font-size: 0.75rem;
+            margin: 0 0.4rem 0.4rem 0;
+            border-radius: 4px;
+        }
+
+        .peer-chip::before {
+            content: "";
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--term-green);
+        }
+
+        .empty {
+            color: var(--term-muted);
+            font-size: 0.8rem;
+            font-style: italic;
+        }
+
+        /* Command Input */
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.25rem;
+            background: var(--term-surface);
+            border-top: 1px solid var(--term-border);
+            flex-shrink: 0;
+        }
+
+        .prompt {
+            color: var(--term-green);
+            font-weight: 500;
+            white-space: nowrap;
+            font-size: 0.85rem;
+        }
+
+        .prompt::before {
+            content: "swarm-shield";
+            color: var(--term-cyan);
+        }
+
+        .prompt::after {
+            content: "@enterprise";
+            color: var(--term-muted);
+        }
+
+        #cmd {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--term-text);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            outline: none;
+            caret-color: var(--term-green);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--term-surface);
+            border: 1px solid var(--term-border);
+            padding: 1.5rem;
+            width: 400px;
+            max-width: 90vw;
+        }
+
+        .modal-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--term-cyan);
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 0.5rem 0.6rem;
+            background: var(--term-bg);
+            border: 1px solid var(--term-border);
+            color: var(--term-text);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+            outline: none;
+            border-radius: 4px;
+        }
+
+        .modal-input:focus {
+            border-color: var(--term-cyan);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            padding: 0.4rem 0.75rem;
+            background: transparent;
+            border: 1px solid var(--term-border);
+            color: var(--term-text);
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
             cursor: pointer;
-            transition: background 0.2s;
+            border-radius: 4px;
+            transition: all 0.15s;
         }
 
-        button:hover {
-            background: var(--accent-hover);
+        .btn:hover {
+            border-color: var(--term-cyan);
+            color: var(--term-cyan);
         }
 
-        button.secondary {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
+        .btn-primary {
+            background: rgba(88, 166, 255, 0.1);
+            border-color: rgba(88, 166, 255, 0.4);
+            color: var(--term-cyan);
         }
 
-        button.secondary:hover {
-            background: var(--border);
+        .btn-primary:hover {
+            background: rgba(88, 166, 255, 0.2);
         }
 
-        .empty-state {
-            text-align: center;
-            padding: 3rem 1rem;
-            color: var(--text-secondary);
+        .modal-error {
+            color: var(--term-red);
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+            display: none;
+        }
+
+        .modal-error.visible {
+            display: block;
+        }
+
+        @media (max-width: 900px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                display: none;
+            }
+            .stats-bar {
+                grid-template-columns: repeat(3, 1fr);
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>
-                <div class="logo">🛡️</div>
-                Swarm Shield
-            </h1>
-            <div class="status-badge" id="authStatus" style="display: none;">
-                <div class="status-dot"></div>
-                <span id="authText">Authenticated</span>
-                <button class="secondary" onclick="handleLogout()" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;">Logout</button>
+    <div class="terminal">
+        <div class="header">
+            <div class="header-title">
+                <div class="logo">&#x1F6E1;</div>
+                <span>swarm-shield // enterprise console</span>
             </div>
-            <button id="loginBtn" onclick="showLoginModal()">Sign In</button>
-        </header>
-
-        <div class="grid">
-            <div class="card">
-                <div class="card-title">Total Requests</div>
-                <div class="card-value" id="totalRequests">0</div>
-                <div class="card-sub">since last restart</div>
-            </div>
-            <div class="card">
-                <div class="card-title">Active Peers</div>
-                <div class="card-value" id="peerCount">0</div>
-                <div class="card-sub">in swarm mesh</div>
-            </div>
-            <div class="card">
-                <div class="card-title">Current RPS</div>
-                <div class="card-value" id="currentRPS">0</div>
-                <div class="card-sub">rolling 5s window</div>
-            </div>
-            <div class="card">
-                <div class="card-title">PoW Difficulty</div>
-                <div class="card-value" id="currentDifficulty">1</div>
-                <div class="card-sub">leading zeros required</div>
-            </div>
-            <div class="card">
-                <div class="card-title">P2P Cache Hits</div>
-                <div class="card-value" id="p2pHits">0</div>
-                <div class="card-sub">0% server bandwidth</div>
-            </div>
-            <div class="card">
-                <div class="card-title">Origin Fetches</div>
-                <div class="card-value" id="originHits">0</div>
-                <div class="card-sub">fallback to origin</div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">Swarm Peers</div>
-            </div>
-            <div id="peerList" class="peer-list">
-                <div class="empty-state">No peers connected</div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-header">
-                <div class="panel-title">Event Log</div>
-                <div class="actions">
-                    <button onclick="requestChallenge()">Request PoW Challenge</button>
-                    <button class="secondary" onclick="clearLog()">Clear Log</button>
+            <div class="header-meta">
+                <div class="status-pill">Online</div>
+                <div id="authBadge" class="auth-pill unauthenticated" onclick="showLoginModal()">
+                    <span>UNAUTHENTICATED</span>
                 </div>
             </div>
-            <div id="logTerminal" class="log-terminal"></div>
+        </div>
+
+        <div class="layout">
+            <div class="main">
+                <div class="stats-bar">
+                    <div class="stat">
+                        <div class="stat-label">Requests</div>
+                        <div class="stat-value" id="totalRequests">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Peers</div>
+                        <div class="stat-value" id="peerCount">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">RPS</div>
+                        <div class="stat-value accent" id="currentRPS">0.0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">PoW</div>
+                        <div class="stat-value" id="currentDifficulty">1</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">P2P Hits</div>
+                        <div class="stat-value" id="p2pHits">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Origin</div>
+                        <div class="stat-value" id="originHits">0</div>
+                    </div>
+                </div>
+
+                <div class="output" id="output"></div>
+
+                <div class="input-row">
+                    <span class="prompt"></span>
+                    <input type="text" id="cmd" placeholder="Type help for commands..." autocomplete="off" spellcheck="false">
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="sidebar-section">
+                    <div class="sidebar-title">Swarm Peers</div>
+                    <div id="peerList">
+                        <div class="empty">No peers connected</div>
+                    </div>
+                </div>
+                <div class="sidebar-section">
+                    <div class="sidebar-title">Quick Reference</div>
+                    <div style="font-size: 0.75rem; color: var(--term-muted); line-height: 1.8;">
+                        <div><span style="color: var(--term-cyan);">help</span> — commands</div>
+                        <div><span style="color: var(--term-cyan);">status</span> — live stats</div>
+                        <div><span style="color: var(--term-cyan);">peers</span> — mesh list</div>
+                        <div><span style="color: var(--term-cyan);">challenge</span> — PoW solve</div>
+                        <div><span style="color: var(--term-cyan);">fetch</span> — get data</div>
+                        <div><span style="color: var(--term-cyan);">login</span> — authenticate</div>
+                        <div><span style="color: var(--term-cyan);">clear</span> — clear output</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loginModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-title">Authenticate</div>
+            <p style="color: var(--term-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">Enter your API key to sign in.</p>
+            <input type="text" id="apiKeyInput" class="modal-input" placeholder="swarm-..." autocomplete="off">
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="handleLogin()">Sign In</button>
+                <button class="btn" onclick="hideLoginModal()">Cancel</button>
+            </div>
+            <p id="loginError" class="modal-error"></p>
         </div>
     </div>
 
@@ -322,75 +534,164 @@
     <script src="js/webrtc-mesh.js"></script>
     <script>
         const API_BASE = window.location.origin;
+        const output = document.getElementById('output');
+        const cmdInput = document.getElementById('cmd');
 
         let powWorker = null;
         let mesh = null;
         let currentChallenge = null;
+        let history = [];
+        let historyIdx = -1;
 
-        function log(message, type = 'info') {
-            const terminal = document.getElementById('logTerminal');
-            const time = new Date().toLocaleTimeString();
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${message}</span>`;
-            terminal.appendChild(entry);
-            terminal.scrollTop = terminal.scrollHeight;
+        function timestamp() {
+            return new Date().toLocaleTimeString('en-GB', { hour12: false });
         }
 
-        function clearLog() {
-            document.getElementById('logTerminal').innerHTML = '';
+        function print(text, cls = 'info') {
+            const line = document.createElement('div');
+            line.className = `line ${cls}`;
+            line.innerHTML = `<span class="timestamp">${timestamp()}</span>${text}`;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
         }
 
-        function updateStats() {
-            fetch(`${API_BASE}/api/stats`)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('totalRequests').textContent = formatNumber(data.totalRequests);
-                    document.getElementById('peerCount').textContent = formatNumber(data.peerCount);
-                    document.getElementById('currentRPS').textContent = data.currentRPS.toFixed(1);
-                    document.getElementById('currentDifficulty').textContent = data.currentDifficulty;
-                    document.getElementById('p2pHits').textContent = formatNumber(data.p2pHits);
-                    document.getElementById('originHits').textContent = formatNumber(data.originHits);
-                })
-                .catch(err => log(`Stats fetch failed: ${err.message}`, 'error'));
+        function printCmd(text) {
+            print(text, 'command');
         }
 
-        function formatNumber(n) {
-            return n.toLocaleString();
+        const COMMANDS = {
+            help: () => {
+                print('Available commands:', 'system');
+                print('  help          Show this help', 'dim');
+                print('  status        Show live system stats', 'dim');
+                print('  peers         List swarm peers', 'dim');
+                print('  challenge     Request and solve PoW challenge', 'dim');
+                print('  fetch         Fetch data from origin', 'dim');
+                print('  login         Open authentication dialog', 'dim');
+                print('  logout        Clear authentication', 'dim');
+                print('  clear         Clear terminal output', 'dim');
+                return [];
+            },
+            status: async () => {
+                const r = await fetch(`${API_BASE}/api/stats`);
+                const d = await r.json();
+                print('System Status:', 'system');
+                print(`  total_requests   : ${d.totalRequests}`, 'info');
+                print(`  active_peers    : ${d.peerCount}`, 'info');
+                print(`  current_rps     : ${d.currentRPS.toFixed(1)}`, 'info');
+                print(`  pow_difficulty  : ${d.currentDifficulty}`, 'info');
+                print(`  p2p_hits        : ${d.p2pHits}`, 'info');
+                print(`  origin_hits     : ${d.originHits}`, 'info');
+                return [];
+            },
+            peers: async () => {
+                const r = await fetch(`${API_BASE}/api/peers`);
+                const d = await r.json();
+                print(`Swarm Peers (${d.count}):`, 'system');
+                if (d.count === 0) {
+                    print('  No peers connected.', 'dim');
+                    return [];
+                }
+                d.peers.forEach(p => print(`  ${p.id}`, 'info'));
+                return [];
+            },
+            challenge: async () => {
+                print('Requesting PoW challenge...', 'pow');
+                const r = await fetch(`${API_BASE}/api/challenge`);
+                const d = await r.json();
+                currentChallenge = d;
+                print(`Challenge received: difficulty=${d.difficulty}, token=${d.token.slice(0, 16)}...`, 'pow');
+                solvePow(d);
+                return [];
+            },
+            fetch: async () => {
+                print('Fetching data...', 'info');
+                const headers = { 'Content-Type': 'application/json' };
+                if (Auth.isLoggedIn()) {
+                    headers['Authorization'] = `Bearer ${Auth.getToken()}`;
+                }
+                const r = await fetch(`${API_BASE}/api/data`, { headers });
+                if (!r.ok) {
+                    const err = await r.json();
+                    print(`Error: ${err.error || r.statusText}`, 'error');
+                    return [];
+                }
+                const d = await r.json();
+                print(`Response:`, 'success');
+                print(`  source     : ${d.source}`, 'info');
+                print(`  timestamp  : ${new Date(d.timestamp * 1000).toISOString()}`, 'info');
+                if (d.data) print(`  data       : ${d.data}`, 'info');
+                return [];
+            },
+            login: () => {
+                showLoginModal();
+                return [];
+            },
+            logout: () => {
+                Auth.logout();
+                updateAuthUI();
+                print('Signed out.', 'warn');
+                return [];
+            },
+            clear: () => {
+                output.innerHTML = '';
+                return [];
+            },
+        };
+
+        function execute(raw) {
+            const cmd = raw.trim();
+            if (!cmd) return;
+
+            printCmd(cmd);
+            history.unshift(cmd);
+            historyIdx = -1;
+
+            const fn = COMMANDS[cmd.toLowerCase()];
+            if (fn) {
+                Promise.resolve(fn()).then(lines => {
+                    if (Array.isArray(lines)) lines.forEach(l => print(l, 'info'));
+                }).catch(err => print(`Error: ${err.message}`, 'error'));
+            } else {
+                print(`Unknown command: ${cmd}. Type 'help' for available commands.`, 'error');
+            }
         }
 
-        function requestChallenge() {
-            log('Requesting PoW challenge...', 'info');
-            fetch(`${API_BASE}/api/challenge`)
-                .then(r => r.json())
-                .then(data => {
-                    currentChallenge = data;
-                    log(`Challenge received: difficulty=${data.difficulty}, token=${data.token.slice(0, 16)}...`, 'info');
-                    solvePow(data);
-                })
-                .catch(err => log(`Challenge request failed: ${err.message}`, 'error'));
-        }
+        cmdInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                execute(cmdInput.value);
+                cmdInput.value = '';
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (historyIdx < history.length - 1) {
+                    historyIdx++;
+                    cmdInput.value = history[historyIdx];
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (historyIdx > 0) {
+                    historyIdx--;
+                    cmdInput.value = history[historyIdx];
+                } else {
+                    historyIdx = -1;
+                    cmdInput.value = '';
+                }
+            }
+        });
 
         function solvePow(challenge) {
-            log(`Starting PoW solver (difficulty=${challenge.difficulty})...`, 'info');
-            const startTime = performance.now();
-
+            const start = performance.now();
             powWorker = new Worker('js/pow-worker.js');
-            powWorker.postMessage({
-                token: challenge.token,
-                difficulty: challenge.difficulty,
-            });
-
-            powWorker.onmessage = function(e) {
-                const elapsed = performance.now() - startTime;
-                log(`PoW solved in ${elapsed.toFixed(0)}ms: nonce=${e.data.nonce.slice(0, 16)}...`, 'info');
+            powWorker.postMessage({ token: challenge.token, difficulty: challenge.difficulty });
+            powWorker.onmessage = (e) => {
+                const elapsed = performance.now() - start;
+                print(`PoW solved in ${elapsed.toFixed(0)}ms: nonce=${e.data.nonce.slice(0, 16)}...`, 'pow');
                 verifySolution(challenge.token, e.data.nonce, challenge.difficulty);
                 powWorker.terminate();
                 powWorker = null;
             };
-
-            powWorker.onerror = function(err) {
-                log(`PoW worker error: ${err.message}`, 'error');
+            powWorker.onerror = (err) => {
+                print(`PoW error: ${err.message}`, 'error');
                 powWorker.terminate();
             };
         }
@@ -402,46 +703,108 @@
                 body: JSON.stringify({ token, nonce, difficulty }),
             })
             .then(r => r.json())
-            .then(data => {
-                if (data.status === 'accepted') {
-                    log('PoW solution accepted by server', 'info');
-                    fetchData();
+            .then(d => {
+                if (d.status === 'accepted') {
+                    print('PoW solution accepted.', 'success');
                 } else {
-                    log(`PoW rejected: ${data.error}`, 'error');
+                    print(`PoW rejected: ${d.error}`, 'error');
                 }
             })
-            .catch(err => log(`Verification failed: ${err.message}`, 'error'));
+            .catch(err => print(`Verification failed: ${err.message}`, 'error'));
         }
 
-        function fetchData() {
-            log('Fetching data from origin...', 'info');
-            const headers = { 'Content-Type': 'application/json' };
-            if (Auth.isLoggedIn()) {
-                headers['Authorization'] = `Bearer ${Auth.getToken()}`;
-            }
-            fetch(`${API_BASE}/api/data`, { headers })
+        function updateStats() {
+            fetch(`${API_BASE}/api/stats`)
                 .then(r => r.json())
-                .then(data => {
-                    log(`Data received: source=${data.source}`, 'info');
-                    if (data.source === 'origin') {
-                        log('Broadcasting payload to swarm peers...', 'info');
-                        if (mesh && mesh.peers.size > 0) {
-                            mesh.broadcast(data);
-                        }
-                    }
+                .then(d => {
+                    document.getElementById('totalRequests').textContent = d.totalRequests.toLocaleString();
+                    document.getElementById('peerCount').textContent = d.peerCount;
+                    document.getElementById('currentRPS').textContent = d.currentRPS.toFixed(1);
+                    document.getElementById('currentDifficulty').textContent = d.currentDifficulty;
+                    document.getElementById('p2pHits').textContent = d.p2pHits.toLocaleString();
+                    document.getElementById('originHits').textContent = d.originHits.toLocaleString();
                 })
-                .catch(err => log(`Data fetch failed: ${err.message}`, 'error'));
+                .catch(() => {});
         }
 
-        // Initialize.
+        function updatePeers() {
+            fetch(`${API_BASE}/api/peers`)
+                .then(r => r.json())
+                .then(d => {
+                    const el = document.getElementById('peerList');
+                    if (d.count === 0) {
+                        el.innerHTML = '<div class="empty">No peers connected</div>';
+                        return;
+                    }
+                    el.innerHTML = d.peers.map(p =>
+                        `<div class="peer-chip">${p.id.slice(0, 12)}...</div>`
+                    ).join('');
+                })
+                .catch(() => {});
+        }
+
+        function showLoginModal() {
+            document.getElementById('loginModal').classList.add('active');
+            document.getElementById('apiKeyInput').focus();
+        }
+
+        function hideLoginModal() {
+            document.getElementById('loginModal').classList.remove('active');
+            document.getElementById('loginError').classList.remove('visible');
+        }
+
+        async function handleLogin() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            const errorEl = document.getElementById('loginError');
+            if (!apiKey) {
+                errorEl.textContent = 'API key is required.';
+                errorEl.classList.add('visible');
+                return;
+            }
+            try {
+                await Auth.login(apiKey);
+                hideLoginModal();
+                updateAuthUI();
+                print('Authenticated successfully.', 'success');
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.classList.add('visible');
+            }
+        }
+
+        function handleLogout() {
+            Auth.logout();
+            updateAuthUI();
+            print('Signed out.', 'warn');
+        }
+
+        function updateAuthUI() {
+            const badge = document.getElementById('authBadge');
+            if (Auth.isLoggedIn()) {
+                badge.classList.remove('unauthenticated');
+                badge.classList.add('authenticated');
+                badge.innerHTML = '<span>AUTHENTICATED</span>';
+                badge.onclick = handleLogout;
+            } else {
+                badge.classList.remove('authenticated');
+                badge.classList.add('unauthenticated');
+                badge.innerHTML = '<span>UNAUTHENTICATED</span>';
+                badge.onclick = showLoginModal;
+            }
+        }
+
+        document.getElementById('apiKeyInput')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
             mesh = new WebRTCMesh(API_BASE);
             mesh.onPeerConnect = (peerId) => {
-                log(`Peer connected: ${peerId}`, 'info');
+                print(`Peer connected: ${peerId.slice(0, 12)}...`, 'p2p');
                 updatePeers();
             };
             mesh.onPeerDisconnect = (peerId) => {
-                log(`Peer disconnected: ${peerId}`, 'warn');
+                print(`Peer disconnected: ${peerId.slice(0, 12)}...`, 'warn');
                 updatePeers();
             };
             mesh.start();
@@ -450,106 +813,9 @@
             setInterval(updateStats, 2000);
             setInterval(updatePeers, 5000);
 
-            log('Swarm Shield Dashboard initialized', 'info');
-            log('WebRTC mesh started, awaiting peer discovery...', 'info');
-        });
-
-        function updatePeers() {
-            fetch(`${API_BASE}/api/peers`)
-                .then(r => r.json())
-                .then(data => {
-                    const container = document.getElementById('peerList');
-                    if (data.count === 0) {
-                        container.innerHTML = '<div class="empty-state">No peers connected</div>';
-                        return;
-                    }
-                    container.innerHTML = data.peers.map(p => `
-                        <div class="peer-tag">
-                            <div class="dot"></div>
-                            ${p.id.slice(0, 12)}...
-                        </div>
-                    `).join('');
-                })
-                .catch(() => {});
-        }
-    </script>
-
-    <!-- Login Modal -->
-    <div id="loginModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
-        <div style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; max-width: 400px; width: 90%;">
-            <h2 style="margin-bottom: 1rem;">Sign In</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.875rem;">Enter your API key to authenticate.</p>
-            <input type="text" id="apiKeyInput" placeholder="swarm-..." style="width: 100%; padding: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-family: var(--font-mono); margin-bottom: 1rem;">
-            <div style="display: flex; gap: 1rem;">
-                <button onclick="handleLogin()">Sign In</button>
-                <button class="secondary" onclick="hideLoginModal()">Cancel</button>
-            </div>
-            <p id="loginError" style="color: var(--danger); margin-top: 0.75rem; font-size: 0.875rem; display: none;"></p>
-        </div>
-    </div>
-
-    <script>
-        function showLoginModal() {
-            document.getElementById('loginModal').style.display = 'flex';
-            document.getElementById('apiKeyInput').focus();
-        }
-
-        function hideLoginModal() {
-            document.getElementById('loginModal').style.display = 'none';
-            document.getElementById('loginError').style.display = 'none';
-        }
-
-        async function handleLogin() {
-            const apiKey = document.getElementById('apiKeyInput').value.trim();
-            const errorEl = document.getElementById('loginError');
-
-            if (!apiKey) {
-                errorEl.textContent = 'Please enter an API key';
-                errorEl.style.display = 'block';
-                return;
-            }
-
-            try {
-                await Auth.login(apiKey);
-                hideLoginModal();
-                updateAuthUI();
-                log('Signed in successfully', 'info');
-            } catch (err) {
-                errorEl.textContent = err.message;
-                errorEl.style.display = 'block';
-            }
-        }
-
-        function handleLogout() {
-            Auth.logout();
-            updateAuthUI();
-            log('Signed out', 'warn');
-        }
-
-        function updateAuthUI() {
-            const loginBtn = document.getElementById('loginBtn');
-            const authStatus = document.getElementById('authStatus');
-            const authText = document.getElementById('authText');
-
-            if (Auth.isLoggedIn()) {
-                loginBtn.style.display = 'none';
-                authStatus.style.display = 'flex';
-                authText.textContent = 'Authenticated';
-            } else {
-                loginBtn.style.display = 'inline-block';
-                authStatus.style.display = 'none';
-            }
-        }
-
-        // Handle Enter key in login modal.
-        document.addEventListener('DOMContentLoaded', () => {
-            const input = document.getElementById('apiKeyInput');
-            if (input) {
-                input.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') handleLogin();
-                });
-            }
-            updateAuthUI();
+            print('Swarm Shield Enterprise Console v1.0.0', 'system');
+            print('Type help for available commands.', 'dim');
+            cmdInput.focus();
         });
     </script>
 </body>
