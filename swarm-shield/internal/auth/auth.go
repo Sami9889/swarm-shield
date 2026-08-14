@@ -77,7 +77,8 @@ func (m *Manager) GenerateAPIKey(name string) string {
 		panic(fmt.Sprintf("failed to generate API key: %v", err))
 	}
 
-	key := APIKeyPrefix + hex.EncodeToString(sha256.Sum256(raw)[:16])
+	rawSum := sha256.Sum256(raw)
+	key := APIKeyPrefix + hex.EncodeToString(rawSum[:16])
 
 	m.mu.Lock()
 	m.apiKeys[key] = &APIKey{
@@ -146,9 +147,9 @@ func (m *Manager) GenerateJWT(apiKey string) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(m.jwtTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
-			Issuer:    jwt.NewString(m.issuer),
+			Issuer:    m.issuer,
 			Subject:   apiKey,
-			Audience:  jwt.NewString(m.audience),
+			Audience:  jwt.ClaimStrings{m.audience},
 		},
 	}
 
@@ -175,7 +176,7 @@ func (m *Manager) ValidateJWT(tokenString string) (*Claims, error) {
 			return nil, fmt.Errorf("invalid issuer")
 		}
 		// Validate audience.
-		if claims.Audience != m.audience {
+		if len(claims.Audience) == 0 || claims.Audience[0] != m.audience {
 			return nil, fmt.Errorf("invalid audience")
 		}
 		return claims, nil
