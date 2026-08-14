@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swarm Shield Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent: #10b981;
+            --accent-hover: #059669;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: #374151;
+            --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent), #3b82f6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 9999px;
+            font-size: 0.875rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--accent);
+        }
+
+        .card-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: var(--accent);
+        }
+
+        .card-sub {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .panel-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .peer-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .peer-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem 0.75rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-family: var(--font-mono);
+        }
+
+        .peer-tag .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+
+        .log-terminal {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            line-height: 1.5;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-entry {
+            margin-bottom: 0.25rem;
+        }
+
+        .log-time {
+            color: var(--text-secondary);
+        }
+
+        .log-info {
+            color: var(--accent);
+        }
+
+        .log-warn {
+            color: var(--warning);
+        }
+
+        .log-error {
+            color: var(--danger);
+        }
+
+        .actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        button {
+            padding: 0.625rem 1.25rem;
+            background: var(--accent);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        button.secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        button.secondary:hover {
+            background: var(--border);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                <div class="logo">🛡️</div>
+                Swarm Shield
+            </h1>
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                <span>Operational</span>
+            </div>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Total Requests</div>
+                <div class="card-value" id="totalRequests">0</div>
+                <div class="card-sub">since last restart</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Active Peers</div>
+                <div class="card-value" id="peerCount">0</div>
+                <div class="card-sub">in swarm mesh</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Current RPS</div>
+                <div class="card-value" id="currentRPS">0</div>
+                <div class="card-sub">rolling 5s window</div>
+            </div>
+            <div class="card">
+                <div class="card-title">PoW Difficulty</div>
+                <div class="card-value" id="currentDifficulty">1</div>
+                <div class="card-sub">leading zeros required</div>
+            </div>
+            <div class="card">
+                <div class="card-title">P2P Cache Hits</div>
+                <div class="card-value" id="p2pHits">0</div>
+                <div class="card-sub">0% server bandwidth</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Origin Fetches</div>
+                <div class="card-value" id="originHits">0</div>
+                <div class="card-sub">fallback to origin</div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Swarm Peers</div>
+            </div>
+            <div id="peerList" class="peer-list">
+                <div class="empty-state">No peers connected</div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Event Log</div>
+                <div class="actions">
+                    <button onclick="requestChallenge()">Request PoW Challenge</button>
+                    <button class="secondary" onclick="clearLog()">Clear Log</button>
+                </div>
+            </div>
+            <div id="logTerminal" class="log-terminal"></div>
+        </div>
+    </div>
+
+    <script src="js/pow-worker.js"></script>
+    <script src="js/webrtc-mesh.js"></script>
+    <script>
+        const API_BASE = window.location.origin;
+
+        let powWorker = null;
+        let mesh = null;
+        let currentChallenge = null;
+
+        function log(message, type = 'info') {
+            const terminal = document.getElementById('logTerminal');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${message}</span>`;
+            terminal.appendChild(entry);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('logTerminal').innerHTML = '';
+        }
+
+        function updateStats() {
+            fetch(`${API_BASE}/api/stats`)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('totalRequests').textContent = formatNumber(data.totalRequests);
+                    document.getElementById('peerCount').textContent = formatNumber(data.peerCount);
+                    document.getElementById('currentRPS').textContent = data.currentRPS.toFixed(1);
+                    document.getElementById('currentDifficulty').textContent = data.currentDifficulty;
+                    document.getElementById('p2pHits').textContent = formatNumber(data.p2pHits);
+                    document.getElementById('originHits').textContent = formatNumber(data.originHits);
+                })
+                .catch(err => log(`Stats fetch failed: ${err.message}`, 'error'));
+        }
+
+        function formatNumber(n) {
+            return n.toLocaleString();
+        }
+
+        function requestChallenge() {
+            log('Requesting PoW challenge...', 'info');
+            fetch(`${API_BASE}/api/challenge`)
+                .then(r => r.json())
+                .then(data => {
+                    currentChallenge = data;
+                    log(`Challenge received: difficulty=${data.difficulty}, token=${data.token.slice(0, 16)}...`, 'info');
+                    solvePow(data);
+                })
+                .catch(err => log(`Challenge request failed: ${err.message}`, 'error'));
+        }
+
+        function solvePow(challenge) {
+            log(`Starting PoW solver (difficulty=${challenge.difficulty})...`, 'info');
+            const startTime = performance.now();
+
+            powWorker = new Worker('js/pow-worker.js');
+            powWorker.postMessage({
+                token: challenge.token,
+                difficulty: challenge.difficulty,
+            });
+
+            powWorker.onmessage = function(e) {
+                const elapsed = performance.now() - startTime;
+                log(`PoW solved in ${elapsed.toFixed(0)}ms: nonce=${e.data.nonce.slice(0, 16)}...`, 'info');
+                verifySolution(challenge.token, e.data.nonce, challenge.difficulty);
+                powWorker.terminate();
+                powWorker = null;
+            };
+
+            powWorker.onerror = function(err) {
+                log(`PoW worker error: ${err.message}`, 'error');
+                powWorker.terminate();
+            };
+        }
+
+        function verifySolution(token, nonce, difficulty) {
+            fetch(`${API_BASE}/api/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, nonce, difficulty }),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'accepted') {
+                    log('PoW solution accepted by server', 'info');
+                    fetchData();
+                } else {
+                    log(`PoW rejected: ${data.error}`, 'error');
+                }
+            })
+            .catch(err => log(`Verification failed: ${err.message}`, 'error'));
+        }
+
+        function fetchData() {
+            log('Fetching data from origin...', 'info');
+            fetch(`${API_BASE}/api/data`)
+                .then(r => r.json())
+                .then(data => {
+                    log(`Data received: source=${data.source}`, 'info');
+                    if (data.source === 'origin') {
+                        log('Broadcasting payload to swarm peers...', 'info');
+                        if (mesh && mesh.peers.size > 0) {
+                            mesh.broadcast(data);
+                        }
+                    }
+                })
+                .catch(err => log(`Data fetch failed: ${err.message}`, 'error'));
+        }
+
+        // Initialize.
+        document.addEventListener('DOMContentLoaded', () => {
+            mesh = new WebRTCMesh(API_BASE);
+            mesh.onPeerConnect = (peerId) => {
+                log(`Peer connected: ${peerId}`, 'info');
+                updatePeers();
+            };
+            mesh.onPeerDisconnect = (peerId) => {
+                log(`Peer disconnected: ${peerId}`, 'warn');
+                updatePeers();
+            };
+            mesh.start();
+
+            updateStats();
+            setInterval(updateStats, 2000);
+            setInterval(updatePeers, 5000);
+
+            log('Swarm Shield Dashboard initialized', 'info');
+            log('WebRTC mesh started, awaiting peer discovery...', 'info');
+        });
+
+        function updatePeers() {
+            fetch(`${API_BASE}/api/peers`)
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('peerList');
+                    if (data.count === 0) {
+                        container.innerHTML = '<div class="empty-state">No peers connected</div>';
+                        return;
+                    }
+                    container.innerHTML = data.peers.map(p => `
+                        <div class="peer-tag">
+                            <div class="dot"></div>
+                            ${p.id.slice(0, 12)}...
+                        </div>
+                    `).join('');
+                })
+                .catch(() => {});
+        }
+    </script>
+</body>
+</html>
