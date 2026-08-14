@@ -28,6 +28,7 @@ import (
 	"swarm-shield/internal/security"
 	"swarm-shield/internal/signaling"
 	"swarm-shield/internal/storage"
+	"swarm-shield/internal/lang"
 )
 
 var (
@@ -583,7 +584,8 @@ func generateID() string {
 
 func main() {
 	// Initialize logger.
-	logger, err := zap.NewProduction()
+	var err error
+	logger, err = zap.NewProduction()
 	if err != nil {
 		log.Fatalf("[FATAL] failed to initialize logger: %v", err)
 	}
@@ -609,6 +611,12 @@ func main() {
 		auditLogger,
 	)
 	defer rateLimiter.Stop()
+
+	// Initialize SwarmScript policy engine.
+	policyRegistry := lang.NewRegistry()
+	if err := policyRegistry.LoadDir("./policies"); err != nil {
+		logger.Warn("failed to load SwarmScript policies", zap.Error(err))
+	}
 
 	// Initialize storage if enabled.
 	var storageErr error

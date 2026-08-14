@@ -1,0 +1,23 @@
+// Default rate limits for public API endpoints.
+define rate_limit "default" {
+    limit = 100
+    window = "60s"
+    key = "ip"
+    burst = 20
+}
+
+// Strict limits for authentication endpoints.
+define rate_limit "auth" {
+    limit = 10
+    window = "60s"
+    key = "ip"
+    burst = 5
+}
+
+// Tight limits for data endpoint due to PoW cost.
+define rate_limit "data" {
+    limit = 50
+    window = "60s"
+    key = "ip"
+    burst = 10
+}

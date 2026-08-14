@@ -1,0 +1,31 @@
+// Redact sensitive fields from audit logs by default.
+define audit_rule "default_redaction" {
+    redact ["password", "token", "secret", "authorization"]
+    set level = "info"
+}
+
+// Escalate 5xx responses to warning level.
+define audit_rule "server_errors" {
+    if $status >= 500 {
+        set level = "error"
+    }
+}
+
+// Log auth failures with more context.
+on event "auth_failure" {
+    log "Auth failure detected"
+    set reason = "invalid_credentials"
+}
+
+// Alert on repeated rate limit hits.
+on event "rate_limit_hit" {
+    if $status == 429 {
+        alert "rate_limit_exceeded"
+    }
+}
+
+// Track API key creation.
+on event "api_key_created" {
+    log "New API key created"
+    set audit_action = "api_key_created"
+}
