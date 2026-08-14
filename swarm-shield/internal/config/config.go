@@ -3,37 +3,44 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // Config holds all enterprise configuration.
 type Config struct {
-	Server   ServerConfig
-	Auth     AuthConfig
-	Redis    RedisConfig
-	Postgres PostgresConfig
-	RateLimit RateLimitConfig
-	Metrics  MetricsConfig
-	TLS      TLSConfig
-	Features FeatureFlags
+	Server     ServerConfig
+	Auth       AuthConfig
+	CORS       CORSConfig
+	WebSocket  WebSocketConfig
+	Redis      RedisConfig
+	Postgres   PostgresConfig
+	RateLimit  RateLimitConfig
+	Metrics    MetricsConfig
+	TLS        TLSConfig
+	Features   FeatureFlags
 }
 
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
-	Host         string
-	Port         string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
+	Host            string
+	Port            string
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	IdleTimeout     time.Duration
+	MaxRequestSize  int64
+	RequestTimeout  time.Duration
 }
 
 // AuthConfig holds authentication configuration.
 type AuthConfig struct {
-	JWTSecret         string
-	JWTExpiry         time.Duration
-	APIKeyRateLimit   int
-	EnableMTLS        bool
-	MTLS certConfig
+	JWTSecret       string
+	JWTExpiry       time.Duration
+	Issuer          string
+	Audience        string
+	APIKeyRateLimit int
+	EnableMTLS      bool
+	MTLS            certConfig
 }
 
 // certConfig holds certificate paths.
@@ -41,6 +48,16 @@ type certConfig struct {
 	CertFile string
 	KeyFile  string
 	CAFile   string
+}
+
+// CORSConfig holds CORS configuration.
+type CORSConfig struct {
+	AllowedOrigins []string
+}
+
+// WebSocketConfig holds WebSocket configuration.
+type WebSocketConfig struct {
+	AllowedOrigins []string
 }
 
 // RedisConfig holds Redis connection configuration.
@@ -53,10 +70,10 @@ type RedisConfig struct {
 
 // PostgresConfig holds PostgreSQL connection configuration.
 type PostgresConfig struct {
-	Enabled   bool
-	URL       string
-	MaxConns  int
-	IdleConns int
+	Enabled    bool
+	URL        string
+	MaxConns   int
+	IdleConns  int
 }
 
 // RateLimitConfig holds rate limiting configuration.
@@ -94,15 +111,19 @@ type FeatureFlags struct {
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Host:         getEnv("HOST", "0.0.0.0"),
-			Port:         getEnv("PORT", "8080"),
-			ReadTimeout:  getDurationEnv("READ_TIMEOUT", 5*time.Second),
-			WriteTimeout: getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
-			IdleTimeout:  getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
+			Host:            getEnv("HOST", "0.0.0.0"),
+			Port:            getEnv("PORT", "8080"),
+			ReadTimeout:     getDurationEnv("READ_TIMEOUT", 5*time.Second),
+			WriteTimeout:    getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
+			IdleTimeout:     getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
+			MaxRequestSize:  getInt64Env("MAX_REQUEST_SIZE", 1<<20), // 1MB default.
+			RequestTimeout:  getDurationEnv("REQUEST_TIMEOUT", 15*time.Second),
 		},
 		Auth: AuthConfig{
 			JWTSecret:       os.Getenv("JWT_SECRET"),
 			JWTExpiry:       getDurationEnv("JWT_EXPIRY", 24*time.Hour),
+			Issuer:          getEnv("JWT_ISSUER", "swarm-shield"),
+			Audience:        getEnv("JWT_AUDIENCE", "swarm-shield-api"),
 			APIKeyRateLimit: getIntEnv("API_KEY_RATE_LIMIT", 100),
 			EnableMTLS:      getBoolEnv("ENABLE_MTLS", false),
 			MTLS: certConfig{
@@ -110,6 +131,12 @@ func Load() *Config {
 				KeyFile:  getEnv("MTLS_KEY_FILE", "/etc/certs/tls.key"),
 				CAFile:   getEnv("MTLS_CA_FILE", "/etc/certs/ca.crt"),
 			},
+		},
+		CORS: CORSConfig{
+			AllowedOrigins: getStringSliceEnv("CORS_ALLOWED_ORIGINS", []string{"*"}),
+		},
+		WebSocket: WebSocketConfig{
+			AllowedOrigins: getStringSliceEnv("WS_ALLOWED_ORIGINS", []string{"*"}),
 		},
 		Redis: RedisConfig{
 			Enabled:  getBoolEnv("REDIS_ENABLED", false),
@@ -170,6 +197,15 @@ func getIntEnv(key string, defaultVal int) int {
 	return defaultVal
 }
 
+func getInt64Env(key string, defaultVal int64) int64 {
+	if val := os.Getenv(key); val != "" {
+		if i, err := strconv.ParseInt(val, 10, 64); err == nil {
+			return i
+		}
+	}
+	return defaultVal
+}
+
 func getBoolEnv(key string, defaultVal bool) bool {
 	if val := os.Getenv(key); val != "" {
 		if b, err := strconv.ParseBool(val); err == nil {
@@ -184,6 +220,13 @@ func getDurationEnv(key string, defaultVal time.Duration) time.Duration {
 		if d, err := time.ParseDuration(val); err == nil {
 			return d
 		}
+	}
+	return defaultVal
+}
+
+func getStringSliceEnv(key string, defaultVal []string) []string {
+	if val := os.Getenv(key); val != "" {
+		return strings.Split(val, ",")
 	}
 	return defaultVal
 }

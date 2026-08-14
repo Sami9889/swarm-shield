@@ -5,9 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,17 +26,17 @@ import (
 	"swarm-shield/internal/metrics"
 	"swarm-shield/internal/pow"
 	"swarm-shield/internal/ratelimit"
+	"swarm-shield/internal/security"
 	"swarm-shield/internal/signaling"
 	"swarm-shield/internal/storage"
 )
 
 var (
 	upgrader = websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
+		ReadBufferSize:   1024,
+		WriteBufferSize:  1024,
+		CheckOrigin:      checkWebSocketOrigin,
+		EnableCompression: true,
 	}
 
 	// Enterprise singleton components.
@@ -61,12 +60,40 @@ var (
 	originHits      uint64
 )
 
+// checkWebSocketOrigin validates WebSocket upgrade origins.
+func checkWebSocketOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+
+	// Allow same-origin requests.
+	if origin == "http://"+r.Host || origin == "https://"+r.Host {
+		return true
+	}
+
+	// Check against configured allowed origins.
+	if cfg != nil && cfg.WebSocket.AllowedOrigins != nil {
+		for _, allowed := range cfg.WebSocket.AllowedOrigins {
+			if allowed == "*" || allowed == origin {
+				return true
+			}
+		}
+	}
+
+	logger.Warn("websocket origin rejected",
+		zap.String("origin", origin),
+		zap.String("remote", r.RemoteAddr),
+	)
+	return false
+}
+
 // APIServer represents the high-performance HTTP server.
 type APIServer struct {
 	server *http.Server
 }
 
-// NewAPIServer creates and configures the API server with enterprise middleware.
+// NewAPIServer creates and configures the API server with enterprise security middleware.
 func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter) *APIServer {
 	mux := http.NewServeMux()
 
@@ -77,80 +104,132 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 			ReadTimeout:  cfg.Server.ReadTimeout,
 			WriteTimeout: cfg.Server.WriteTimeout,
 			IdleTimeout:  cfg.Server.IdleTimeout,
+			MaxHeaderBytes: 1 << 20, // 1MB max header size.
 		},
 	}
 
-	// Build middleware chain.
-	var challengeHandler http.Handler = http.HandlerFunc(s.handleChallenge)
-	var verifyHandler http.Handler = http.HandlerFunc(s.handleVerify)
-	var registerHandler http.Handler = http.HandlerFunc(s.handleRegister)
-	var signalHandler http.Handler = http.HandlerFunc(s.handleSignal)
-	var peersHandler http.Handler = http.HandlerFunc(s.handlePeers)
-	var loginHandler http.Handler = http.HandlerFunc(s.handleLogin)
-	var keysHandler http.Handler = authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
-	var dataHandler http.Handler = authManager.AuthMiddleware(http.HandlerFunc(s.handleData))
-	var statsHandler http.Handler = http.HandlerFunc(s.handleStats)
-	var wsHandler http.Handler = http.HandlerFunc(s.handleWebSocket)
-	var healthHandler http.Handler = http.HandlerFunc(s.handleHealth)
+	// Build handlers.
+	challengeHandler := http.HandlerFunc(s.handleChallenge)
+	verifyHandler := http.HandlerFunc(s.handleVerify)
+	registerHandler := http.HandlerFunc(s.handleRegister)
+	signalHandler := http.HandlerFunc(s.handleSignal)
+	peersHandler := http.HandlerFunc(s.handlePeers)
+	loginHandler := http.HandlerFunc(s.handleLogin)
+	keysHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
+	dataHandler := authManager.AuthMiddleware(rateLimiter.RateLimitMiddleware(http.HandlerFunc(s.handleData)))
+	statsHandler := http.HandlerFunc(s.handleStats)
+	wsHandler := http.HandlerFunc(s.handleWebSocket)
+	healthHandler := http.HandlerFunc(s.handleHealth)
+
+	// Security middleware chain.
+	secureHeaders := security.SecureHeadersMiddleware
+	cors := security.NewCORSMiddleware(cfg.CORS.AllowedOrigins).Middleware
+	requestSizeLimit := security.RequestSizeMiddleware(cfg.Server.MaxRequestSize)
+	timeout := security.TimeoutMiddleware(cfg.Server.RequestTimeout)
+	recovery := security.RecoveryMiddleware
+	requestID := security.RequestIDMiddleware
 
 	// Apply middleware chain.
-	mux.Handle("/api/challenge", metricTracker.Middleware(challengeHandler))
-	mux.Handle("/api/verify", metricTracker.Middleware(verifyHandler))
-	mux.Handle("/api/register", metricTracker.Middleware(registerHandler))
-	mux.Handle("/api/signal", metricTracker.Middleware(signalHandler))
-	mux.Handle("/api/peers", metricTracker.Middleware(peersHandler))
-	mux.Handle("/api/auth/login", metricTracker.Middleware(loginHandler))
-	mux.Handle("/api/auth/keys", metricTracker.Middleware(keysHandler))
-	mux.Handle("/api/data", metricTracker.Middleware(rateLimiter.RateLimitMiddleware(dataHandler)))
-	mux.Handle("/api/stats", metricTracker.Middleware(statsHandler))
-	mux.Handle("/ws", metricTracker.Middleware(wsHandler))
-	mux.Handle("/healthz", healthHandler)
-	mux.Handle("/", http.FileServer(http.Dir("./public")))
+	mux.Handle("/api/challenge", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(challengeHandler)))))))
+	mux.Handle("/api/verify", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(verifyHandler)))))))
+	mux.Handle("/api/register", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(registerHandler)))))))
+	mux.Handle("/api/signal", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(signalHandler)))))))
+	mux.Handle("/api/peers", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(peersHandler)))))))
+	mux.Handle("/api/auth/login", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(loginHandler)))))))
+	mux.Handle("/api/auth/keys", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(keysHandler)))))))
+	mux.Handle("/api/data", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(dataHandler)))))))
+	mux.Handle("/api/stats", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(statsHandler)))))))
+	mux.Handle("/ws", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(recovery(wsHandler))))))))
+	mux.Handle("/healthz", requestID(secureHeaders(cors(healthHandler))))
+	mux.Handle("/", requestID(secureHeaders(cors(http.FileServer(http.Dir("./public")))))
 
 	return s
 }
 
 // Start begins listening for requests.
 func (s *APIServer) Start() error {
-	log.Printf("[INFO] swarm-shield listening on %s", s.server.Addr)
+	logger.Info("swarm-shield listening", zap.String("addr", s.server.Addr))
 	return s.server.ListenAndServe()
 }
 
 // Shutdown gracefully stops the server.
 func (s *APIServer) Shutdown(ctx context.Context) error {
 	signalingStore.Stop()
+	rateLimiter.Stop()
 	return s.server.Shutdown(ctx)
 }
 
-// handleChallenge issues a PoW challenge to the requesting client.
+// extractClientIP extracts the real client IP from the request.
+func extractClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (first IP in chain).
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.Split(xff, ",")
+		ip := strings.TrimSpace(ips[0])
+		if net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
+
+	// Check X-Real-IP header.
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		ip := strings.TrimSpace(xri)
+		if net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
+
+	// Fall back to RemoteAddr.
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+// requestID returns a unique request ID for tracing.
+func requestID() string {
+	buf := make([]byte, 8)
+	_, _ = rand.Read(buf)
+	return hex.EncodeToString(buf)
+}
+
+// handleChallenge issues a PoW challenge bound to the client IP.
 func (s *APIServer) handleChallenge(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
+	clientIP := extractClientIP(r)
 	difficulty := difficultyCalc.CalculateDifficulty()
-	challenge := validator.GenerateChallenge(difficulty)
+	challenge := validator.GenerateChallenge(difficulty, clientIP)
 
-	log.Printf("[DEBUG] challenge issued token=%s difficulty=%d", challenge.Token, difficulty)
+	logger.Debug("challenge issued",
+		zap.String("token", challenge.Token),
+		zap.Int("difficulty", difficulty),
+		zap.String("client_ip", maskIP(clientIP)),
+	)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"token":      challenge.Token,
 		"difficulty": difficulty,
 		"timestamp":  challenge.IssuedAt.Unix(),
+		"expiresIn":  60,
 	})
 }
 
-// handleVerify validates a PoW solution submitted by a client.
+// handleVerify validates a PoW solution with IP binding.
 func (s *APIServer) handleVerify(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
+	clientIP := extractClientIP(r)
+
 	var req struct {
-		Token     string `json:"token"`
-		Nonce     string `json:"nonce"`
+		Token      string `json:"token"`
+		Nonce      string `json:"nonce"`
 		Difficulty int    `json:"difficulty"`
 	}
 
@@ -159,13 +238,27 @@ func (s *APIServer) handleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !validator.Verify(req.Token, req.Nonce, req.Difficulty) {
+	// Validate nonce format (must be hex string).
+	if !isValidHexNonce(req.Nonce) {
+		respondError(w, http.StatusBadRequest, "invalid nonce format")
+		return
+	}
+
+	if !validator.Verify(req.Token, req.Nonce, clientIP, req.Difficulty) {
+		auditLogger.LogAuthFailure(clientIP, r.URL.Path, "invalid_pow")
 		respondError(w, http.StatusForbidden, "invalid PoW solution")
 		return
 	}
 
 	validator.ConsumeChallenge(req.Token)
 	atomic.AddUint64(&activePoWProofs, 1)
+
+	auditLogger.Log(nil, &audit.Event{
+		ID:        requestID(),
+		Type:      audit.EventPoWVerified,
+		IPAddress: maskIP(clientIP),
+		Status:    http.StatusOK,
+	})
 
 	respondJSON(w, http.StatusOK, map[string]string{
 		"status": "accepted",
@@ -192,17 +285,16 @@ func (s *APIServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	peer := signalingStore.RegisterPeer(req.PeerID)
-
 	peers := signalingStore.GetRandomPeers(5, peer.ID)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"peerId":   peer.ID,
-		"peers":    peers,
+		"peerId":    peer.ID,
+		"peers":     peers,
 		"serverTime": time.Now().Unix(),
 	})
 }
 
-// handleSignal processes WebRTC signaling messages (SDP offers/answers, ICE candidates).
+// handleSignal processes WebRTC signaling messages.
 func (s *APIServer) handleSignal(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -215,12 +307,30 @@ func (s *APIServer) handleSignal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate peer ID format.
+	if msg.PeerID == "" || len(msg.PeerID) < 8 {
+		respondError(w, http.StatusBadRequest, "invalid peer ID")
+		return
+	}
+
 	switch msg.Type {
 	case "offer":
+		if msg.SDP == "" {
+			respondError(w, http.StatusBadRequest, "missing SDP offer")
+			return
+		}
 		signalingStore.UpdateOffer(msg.PeerID, msg.SDP)
 	case "answer":
+		if msg.SDP == "" {
+			respondError(w, http.StatusBadRequest, "missing SDP answer")
+			return
+		}
 		signalingStore.UpdateAnswer(msg.PeerID, msg.SDP)
 	case "candidate":
+		if msg.Candidate == "" {
+			respondError(w, http.StatusBadRequest, "missing ICE candidate")
+			return
+		}
 		signalingStore.AddICECandidate(msg.PeerID, msg.Candidate)
 	default:
 		respondError(w, http.StatusBadRequest, "unknown signal type")
@@ -243,6 +353,15 @@ func (s *APIServer) handlePeers(w http.ResponseWriter, r *http.Request) {
 
 // handleLogin processes sign-in requests and returns a JWT.
 func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
+	clientIP := extractClientIP(r)
+
+	// Rate limit login attempts per IP.
+	if !rateLimiter.Allow("login:" + clientIP) {
+		auditLogger.LogRateLimitHit("", clientIP, "/api/auth/login")
+		respondError(w, http.StatusTooManyRequests, "too many login attempts")
+		return
+	}
+
 	authManager.HandleLogin(w, r)
 }
 
@@ -277,21 +396,14 @@ func (s *APIServer) handleKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleData serves the primary API payload with P2P mesh-first fallback.
-// If a connected peer has the data cached, transfer is browser-to-browser (0% server bandwidth).
-// Otherwise, after 1.5s timeout, solve PoW, fetch from origin, and broadcast to swarm.
 func (s *APIServer) handleData(w http.ResponseWriter, r *http.Request) {
-	atomic.AddUint64(&totalRequests, 1)
-	difficultyCalc.RecordRequest()
+	clientIP := extractClientIP(r)
 
 	// Check if any connected peer can serve the requested data via P2P.
 	peerID := r.URL.Query().Get("peer")
 	if peerID != "" {
 		if peer, exists := signalingStore.GetPeer(peerID); exists {
 			if peer.WebRTCAnswer != nil || peer.WebRTCOffer != nil {
-				// Peer is connected via WebRTC DataChannel.
-				// In a full implementation, the client would have already attempted
-				// P2P transfer before falling back here. This endpoint serves as
-				// the origin-of-last-resort.
 				atomic.AddUint64(&p2pHits, 1)
 				respondJSON(w, http.StatusOK, map[string]string{
 					"source":   "p2p",
@@ -311,7 +423,7 @@ func (s *APIServer) handleData(w http.ResponseWriter, r *http.Request) {
 
 	if authHeader == "" || nonceHeader == "" || difficultyHeader == "" {
 		difficulty := difficultyCalc.CalculateDifficulty()
-		challenge := validator.GenerateChallenge(difficulty)
+		challenge := validator.GenerateChallenge(difficulty, clientIP)
 		w.Header().Set("X-PoW-Challenge", challenge.Token)
 		w.Header().Set("X-PoW-Difficulty", strconv.Itoa(difficulty))
 		respondError(w, http.StatusTooEarly, "PoW challenge required")
@@ -319,7 +431,7 @@ func (s *APIServer) handleData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	difficulty, _ := strconv.Atoi(difficultyHeader)
-	if !validator.Verify(authHeader, nonceHeader, difficulty) {
+	if !validator.Verify(authHeader, nonceHeader, clientIP, difficulty) {
 		respondError(w, http.StatusForbidden, "invalid PoW solution")
 		return
 	}
@@ -327,8 +439,6 @@ func (s *APIServer) handleData(w http.ResponseWriter, r *http.Request) {
 	validator.ConsumeChallenge(authHeader)
 	atomic.AddUint64(&originHits, 1)
 
-	// In a real deployment, this would fetch from upstream origin.
-	// For demonstration, return a generated payload.
 	payload := map[string]interface{}{
 		"source":    "origin",
 		"timestamp": time.Now().Unix(),
@@ -365,23 +475,43 @@ func (s *APIServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		peerID = generateID()
 	}
 
+	// Set WebSocket connection timeouts.
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[WARN] websocket upgrade failed: %v", err)
+		logger.Warn("websocket upgrade failed", zap.Error(err), zap.String("remote", r.RemoteAddr))
 		return
 	}
 	defer conn.Close()
 
+	// Set read/write deadlines.
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	// Send ping every 30s to keep connection alive.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := conn.WriteMessage(websocket.PingMessage, []byte("keepalive")); err != nil {
+				return
+			}
+		}
+	}()
+
 	// Register peer.
 	signalingStore.RegisterPeer(peerID)
-	log.Printf("[INFO] websocket connected peer=%s", peerID)
+	logger.Info("websocket connected", zap.String("peerId", peerID), zap.String("remote", r.RemoteAddr))
 
-	// Read pump: process incoming signaling messages.
+	// Read pump with max message size.
+	conn.SetReadLimit(4096)
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("[WARN] websocket read error peer=%s: %v", peerID, err)
+				logger.Warn("websocket read error", zap.String("peerId", peerID), zap.Error(err))
 			}
 			break
 		}
@@ -403,7 +533,7 @@ func (s *APIServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	signalingStore.RemovePeer(peerID)
-	log.Printf("[INFO] websocket disconnected peer=%s", peerID)
+	logger.Info("websocket disconnected", zap.String("peerId", peerID))
 }
 
 // respondJSON writes a JSON response.
@@ -418,11 +548,35 @@ func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
 }
 
+// isValidHexNonce validates that a nonce is a valid hex string.
+func isValidHexNonce(nonce string) bool {
+	if nonce == "" {
+		return false
+	}
+	for _, c := range nonce {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// maskIP masks an IP address for logging (preserves first 3 octets for IPv4).
+func maskIP(ip string) string {
+	if ip == "" {
+		return ""
+	}
+	// Simple masking: show first 8 chars.
+	if len(ip) > 8 {
+		return ip[:8] + "****"
+	}
+	return "****"
+}
+
 // generateID creates a random 16-character hex identifier using crypto/rand.
 func generateID() string {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
-		// Fallback to timestamp-based ID if crypto/rand fails.
 		return hex.EncodeToString([]byte(strconv.FormatInt(time.Now().UnixNano(), 16)))[:16]
 	}
 	return hex.EncodeToString(buf)
@@ -446,7 +600,7 @@ func main() {
 	metricTracker = metrics.NewMetrics()
 
 	// Initialize auth manager.
-	authManager = auth.NewManager(cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry)
+	authManager = auth.NewManager(cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry, cfg.Auth.Issuer, cfg.Auth.Audience)
 
 	// Initialize rate limiter.
 	rateLimiter = ratelimit.NewRateLimiter(

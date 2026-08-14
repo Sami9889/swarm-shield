@@ -12,9 +12,11 @@ import (
 
 // Challenge represents an active PoW challenge issued to a client.
 type Challenge struct {
-	Token     string
+	Token      string
 	Difficulty int
 	IssuedAt   time.Time
+	ClientIP   string
+	ExpiresAt  time.Time
 }
 
 // Validator validates PoW solutions and manages challenge lifecycle.
@@ -31,7 +33,7 @@ func NewValidator() *Validator {
 }
 
 // GenerateChallenge creates a new random challenge token with the given difficulty.
-func (v *Validator) GenerateChallenge(difficulty int) *Challenge {
+func (v *Validator) GenerateChallenge(difficulty int, clientIP string) *Challenge {
 	if difficulty < 1 {
 		difficulty = 1
 	}
@@ -39,19 +41,24 @@ func (v *Validator) GenerateChallenge(difficulty int) *Challenge {
 		difficulty = 6
 	}
 
-	token := make([]byte, 32)
-	if _, err := rand.Read(token); err != nil {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
 		panic(fmt.Sprintf("failed to generate challenge token: %v", err))
 	}
 
+	token := hex.EncodeToString(tokenBytes)
+	now := time.Now()
+
 	ch := &Challenge{
-		Token:      hex.EncodeToString(token),
+		Token:      token,
 		Difficulty: difficulty,
-		IssuedAt:   time.Now(),
+		IssuedAt:   now,
+		ClientIP:   clientIP,
+		ExpiresAt:  now.Add(60 * time.Second),
 	}
 
 	v.mu.Lock()
-	v.challenges[ch.Token] = ch
+	v.challenges[token] = ch
 	v.mu.Unlock()
 
 	return ch
@@ -59,8 +66,29 @@ func (v *Validator) GenerateChallenge(difficulty int) *Challenge {
 
 // Verify checks whether a nonce satisfies the PoW difficulty for the given token.
 // The proof is: SHA-256(token + nonce) must start with `difficulty` zero hex characters.
-func (v *Validator) Verify(token, nonce string, difficulty int) bool {
+func (v *Validator) Verify(token, nonce, clientIP string, difficulty int) bool {
 	if difficulty < 1 || difficulty > 6 {
+		return false
+	}
+
+	v.mu.RLock()
+	challenge, exists := v.challenges[token]
+	v.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	// Challenge must not be expired.
+	if time.Now().After(challenge.ExpiresAt) {
+		v.mu.Lock()
+		delete(v.challenges, token)
+		v.mu.Unlock()
+		return false
+	}
+
+	// Challenge must be bound to the same client IP.
+	if challenge.ClientIP != "" && clientIP != "" && challenge.ClientIP != clientIP {
 		return false
 	}
 
@@ -90,14 +118,14 @@ func (v *Validator) ConsumeChallenge(token string) bool {
 
 // cleanupLoop periodically removes stale challenges older than 60 seconds.
 func (v *Validator) cleanupLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		now := time.Now()
 		v.mu.Lock()
 		for token, ch := range v.challenges {
-			if now.Sub(ch.IssuedAt) > 60*time.Second {
+			if now.After(ch.ExpiresAt) {
 				delete(v.challenges, token)
 			}
 		}
@@ -141,18 +169,9 @@ func (dc *DifficultyCalculator) RecordRequest() {
 }
 
 // CalculateDifficulty returns a difficulty level from 1 to 6 based on recent RPS.
-//   - < 100 RPS: difficulty 1
-//   - 100-500 RPS: difficulty 2
-//   - 500-1,000 RPS: difficulty 3
-//   - 1,000-5,000 RPS: difficulty 4
-//   - 5,000-20,000 RPS: difficulty 5
-//   - > 20,000 RPS: difficulty 6
 func (dc *DifficultyCalculator) CalculateDifficulty() int {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
-
-	now := time.Now()
-	cutoff := now.Add(-dc.windowSize)
 
 	var total uint64
 	for _, count := range dc.rpsBuckets {
@@ -181,9 +200,6 @@ func (dc *DifficultyCalculator) CalculateDifficulty() int {
 func (dc *DifficultyCalculator) GetCurrentRPS() float64 {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
-
-	now := time.Now()
-	cutoff := now.Add(-dc.windowSize)
 
 	var total uint64
 	for _, count := range dc.rpsBuckets {
@@ -218,7 +234,6 @@ func (dc *DifficultyCalculator) tickerLoop() {
 }
 
 // EstimateNonceSpace estimates the number of nonces needed on average for a given difficulty.
-// Difficulty d means the first d hex characters must be zero, so 16^d attempts on average.
 func EstimateNonceSpace(difficulty int) float64 {
 	return math.Pow(16, float64(difficulty))
 }

@@ -41,21 +41,31 @@ type Manager struct {
 	apiKeys    map[string]*APIKey
 	jwtSecret  []byte
 	jwtTTL     time.Duration
+	issuer     string
+	audience   string
 }
 
 // NewManager creates a new auth manager.
-func NewManager(jwtSecret string, jwtTTL time.Duration) *Manager {
+func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string) *Manager {
 	if jwtSecret == "" {
 		jwtSecret = generateDefaultSecret()
 	}
 	if jwtTTL == 0 {
 		jwtTTL = 24 * time.Hour
 	}
+	if issuer == "" {
+		issuer = "swarm-shield"
+	}
+	if audience == "" {
+		audience = "swarm-shield-api"
+	}
 
 	m := &Manager{
 		apiKeys:   make(map[string]*APIKey),
 		jwtSecret: []byte(jwtSecret),
 		jwtTTL:    jwtTTL,
+		issuer:    issuer,
+		audience:  audience,
 	}
 	return m
 }
@@ -136,6 +146,9 @@ func (m *Manager) GenerateJWT(apiKey string) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(m.jwtTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
+			Issuer:    jwt.NewString(m.issuer),
+			Subject:   apiKey,
+			Audience:  jwt.NewString(m.audience),
 		},
 	}
 
@@ -157,6 +170,14 @@ func (m *Manager) ValidateJWT(tokenString string) (*Claims, error) {
 	}
 
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		// Validate issuer.
+		if claims.Issuer != m.issuer {
+			return nil, fmt.Errorf("invalid issuer")
+		}
+		// Validate audience.
+		if claims.Audience != m.audience {
+			return nil, fmt.Errorf("invalid audience")
+		}
 		return claims, nil
 	}
 
