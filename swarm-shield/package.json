@@ -6,9 +6,15 @@
     "dev": "go run main.go",
     "build": "docker build -t swarm-shield .",
     "start": "docker run -p 8080:8080 swarm-shield",
+    "start:compose": "docker compose -f deploy/docker-compose.yml up -d",
+    "stop:compose": "docker compose -f deploy/docker-compose.yml down",
     "test": "go test ./...",
     "lint": "gofmt -w . && go vet ./...",
-    "generate-api-key": "node -e \"console.log('swarm-' + require('crypto').randomBytes(24).toString('hex'))\""
+    "generate-api-key": "node -e \"console.log('swarm-' + require('crypto').randomBytes(24).toString('hex'))\"",
+    "helm:install": "helm install swarm-shield deploy/helm/swarm-shield",
+    "helm:upgrade": "helm upgrade swarm-shield deploy/helm/swarm-shield",
+    "helm:uninstall": "helm uninstall swarm-shield",
+    "openapi:validate": "npx @redocly/cli lint openapi.yaml"
   },
   "keywords": [
     "webrtc",
@@ -16,7 +22,14 @@
     "ddos-protection",
     "pow",
     "swarm",
-    "api-gateway"
+    "api-gateway",
+    "enterprise",
+    "kubernetes",
+    "helm"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "go": "1.22"
+  }
 }

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: swarm-shield
+description: Production-grade WebRTC P2P swarm mesh with adaptive PoW DDoS protection
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - webrtc
+  - p2p
+  - ddos-protection
+  - pow
+  - swarm
+  - api-gateway
+maintainers:
+  - email: ops@example.com
+    name: Swarm Shield Team

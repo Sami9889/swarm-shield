@@ -1,0 +1,232 @@
+openapi: 3.0.3
+info:
+  title: Swarm Shield API
+  description: Production-grade WebRTC P2P swarm mesh with adaptive PoW DDoS protection
+  version: 1.0.0
+  contact:
+    name: Swarm Shield Team
+    email: ops@example.com
+
+servers:
+  - url: https://api.swarm-shield.example.com
+    description: Production server
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Challenge:
+      type: object
+      properties:
+        token:
+          type: string
+        difficulty:
+          type: integer
+        timestamp:
+          type: integer
+
+    LoginRequest:
+      type: object
+      required:
+        - apiKey
+      properties:
+        apiKey:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        expiresIn:
+          type: integer
+        type:
+          type: string
+
+    APIKey:
+      type: object
+      properties:
+        name:
+          type: string
+        prefix:
+          type: string
+        active:
+          type: boolean
+        createdAt:
+          type: integer
+        lastUsed:
+          type: integer
+
+    Stats:
+      type: object
+      properties:
+        totalRequests:
+          type: integer
+        activePowProofs:
+          type: integer
+        p2pHits:
+          type: integer
+        originHits:
+          type: integer
+        currentRPS:
+          type: number
+        currentDifficulty:
+          type: integer
+        peerCount:
+          type: integer
+
+paths:
+  /api/challenge:
+    get:
+      tags:
+        - PoW
+      summary: Get a PoW challenge
+      responses:
+        "200":
+          description: Challenge issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Challenge'
+
+  /api/verify:
+    post:
+      tags:
+        - PoW
+      summary: Verify a PoW solution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                nonce:
+                  type: string
+                difficulty:
+                  type: integer
+      responses:
+        "200":
+          description: Solution accepted
+        "403":
+          description: Invalid solution
+
+  /api/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Sign in with API key
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        "401":
+          description: Invalid API key
+
+  /api/auth/keys:
+    get:
+      tags:
+        - Auth
+      summary: List API keys
+      responses:
+        "200":
+          description: List of API keys
+    post:
+      tags:
+        - Auth
+      summary: Generate new API key
+      responses:
+        "201":
+          description: API key created
+
+  /api/data:
+    get:
+      tags:
+        - Data
+      summary: Fetch data (P2P-first, origin fallback)
+      responses:
+        "200":
+          description: Data payload
+        "425":
+          description: PoW challenge required
+        "401":
+          description: Unauthorized
+
+  /api/peers:
+    get:
+      tags:
+        - Mesh
+      summary: List swarm peers
+      responses:
+        "200":
+          description: Peer list
+
+  /api/signal:
+    post:
+      tags:
+        - Mesh
+      summary: Send WebRTC signaling
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                peerId:
+                  type: string
+                sdp:
+                  type: string
+                candidate:
+                  type: string
+      responses:
+        "200":
+          description: Signal accepted
+
+  /api/stats:
+    get:
+      tags:
+        - System
+      summary: Get server statistics
+      responses:
+        "200":
+          description: Server stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+
+  /healthz:
+    get:
+      tags:
+        - System
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy

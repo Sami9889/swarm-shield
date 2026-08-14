@@ -5,21 +5,30 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 
+	"swarm-shield/internal/audit"
 	"swarm-shield/internal/auth"
+	"swarm-shield/internal/config"
+	"swarm-shield/internal/metrics"
 	"swarm-shield/internal/pow"
+	"swarm-shield/internal/ratelimit"
 	"swarm-shield/internal/signaling"
+	"swarm-shield/internal/storage"
 )
 
 var (
@@ -31,11 +40,19 @@ var (
 		},
 	}
 
-	// Global singleton components.
+	// Enterprise singleton components.
+	cfg           *config.Config
+	logger        *zap.Logger
+	auditLogger   *audit.Logger
+	metricTracker *metrics.Metrics
+	rateLimiter   *ratelimit.RateLimiter
+	store         *storage.Store
+
+	// Core components.
 	validator      = pow.NewValidator()
 	difficultyCalc = pow.NewDifficultyCalculator()
 	signalingStore = signaling.NewSignalingStore(5 * time.Minute)
-	authManager    = auth.NewManager(os.Getenv("JWT_SECRET"), 24*time.Hour)
+	authManager    *auth.Manager
 
 	// Stats.
 	totalRequests   uint64
@@ -49,31 +66,45 @@ type APIServer struct {
 	server *http.Server
 }
 
-// NewAPIServer creates and configures the API server.
-func NewAPIServer(addr string) *APIServer {
+// NewAPIServer creates and configures the API server with enterprise middleware.
+func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter) *APIServer {
 	mux := http.NewServeMux()
 
 	s := &APIServer{
 		server: &http.Server{
-			Addr:         addr,
+			Addr:         cfg.Addr(),
 			Handler:      mux,
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 10 * time.Second,
-			IdleTimeout:  30 * time.Second,
+			ReadTimeout:  cfg.Server.ReadTimeout,
+			WriteTimeout: cfg.Server.WriteTimeout,
+			IdleTimeout:  cfg.Server.IdleTimeout,
 		},
 	}
 
-	mux.HandleFunc("/api/challenge", s.handleChallenge)
-	mux.HandleFunc("/api/verify", s.handleVerify)
-	mux.HandleFunc("/api/register", s.handleRegister)
-	mux.HandleFunc("/api/signal", s.handleSignal)
-	mux.HandleFunc("/api/peers", s.handlePeers)
-	mux.HandleFunc("/api/auth/login", s.handleLogin)
-	mux.Handle("/api/auth/keys", authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys)))
-	mux.Handle("/api/data", authManager.AuthMiddleware(http.HandlerFunc(s.handleData)))
-	mux.HandleFunc("/api/stats", s.handleStats)
-	mux.HandleFunc("/ws", s.handleWebSocket)
-	mux.HandleFunc("/healthz", s.handleHealth)
+	// Build middleware chain.
+	var challengeHandler http.Handler = http.HandlerFunc(s.handleChallenge)
+	var verifyHandler http.Handler = http.HandlerFunc(s.handleVerify)
+	var registerHandler http.Handler = http.HandlerFunc(s.handleRegister)
+	var signalHandler http.Handler = http.HandlerFunc(s.handleSignal)
+	var peersHandler http.Handler = http.HandlerFunc(s.handlePeers)
+	var loginHandler http.Handler = http.HandlerFunc(s.handleLogin)
+	var keysHandler http.Handler = authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
+	var dataHandler http.Handler = authManager.AuthMiddleware(http.HandlerFunc(s.handleData))
+	var statsHandler http.Handler = http.HandlerFunc(s.handleStats)
+	var wsHandler http.Handler = http.HandlerFunc(s.handleWebSocket)
+	var healthHandler http.Handler = http.HandlerFunc(s.handleHealth)
+
+	// Apply middleware chain.
+	mux.Handle("/api/challenge", metricTracker.Middleware(challengeHandler))
+	mux.Handle("/api/verify", metricTracker.Middleware(verifyHandler))
+	mux.Handle("/api/register", metricTracker.Middleware(registerHandler))
+	mux.Handle("/api/signal", metricTracker.Middleware(signalHandler))
+	mux.Handle("/api/peers", metricTracker.Middleware(peersHandler))
+	mux.Handle("/api/auth/login", metricTracker.Middleware(loginHandler))
+	mux.Handle("/api/auth/keys", metricTracker.Middleware(keysHandler))
+	mux.Handle("/api/data", metricTracker.Middleware(rateLimiter.RateLimitMiddleware(dataHandler)))
+	mux.Handle("/api/stats", metricTracker.Middleware(statsHandler))
+	mux.Handle("/ws", metricTracker.Middleware(wsHandler))
+	mux.Handle("/healthz", healthHandler)
 	mux.Handle("/", http.FileServer(http.Dir("./public")))
 
 	return s
@@ -398,16 +429,71 @@ func generateID() string {
 }
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	// Initialize logger.
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatalf("[FATAL] failed to initialize logger: %v", err)
+	}
+	defer logger.Sync()
+
+	// Load configuration.
+	cfg = config.Load()
+
+	// Initialize audit logger.
+	auditLogger = audit.NewLogger(logger)
+
+	// Initialize metrics.
+	metricTracker = metrics.NewMetrics()
+
+	// Initialize auth manager.
+	authManager = auth.NewManager(cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry)
+
+	// Initialize rate limiter.
+	rateLimiter = ratelimit.NewRateLimiter(
+		cfg.RateLimit.RequestsPerMinute,
+		cfg.RateLimit.BurstSize,
+		cfg.RateLimit.TTL,
+		auditLogger,
+	)
+	defer rateLimiter.Stop()
+
+	// Initialize storage if enabled.
+	var storageErr error
+	if cfg.Postgres.Enabled && cfg.Postgres.URL != "" {
+		store, storageErr = storage.NewStore(cfg.Postgres.URL, cfg.Postgres.MaxConns, cfg.Postgres.IdleConns)
+		if storageErr != nil {
+			logger.Warn("failed to initialize storage, running without persistence", zap.Error(storageErr))
+		} else {
+			defer store.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := store.Ping(ctx); err != nil {
+				logger.Warn("database ping failed, running without persistence", zap.Error(err))
+			}
+			cancel()
+		}
 	}
 
-	server := NewAPIServer(":" + port)
+	// Create server.
+	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter)
+
+	// Log system start.
+	auditLogger.Log(nil, &audit.Event{
+		ID:     generateID(),
+		Type:   audit.EventSystemStart,
+		Status: http.StatusOK,
+	})
+
+	logger.Info("swarm-shield starting",
+		zap.String("addr", cfg.Addr()),
+		zap.Bool("redis", cfg.Redis.Enabled),
+		zap.Bool("postgres", cfg.Postgres.Enabled),
+		zap.Bool("rateLimit", cfg.RateLimit.Enabled),
+		zap.Bool("metrics", cfg.Metrics.Enabled),
+	)
 
 	go func() {
 		if err := server.Start(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("[FATAL] server failed: %v", err)
+			logger.Fatal("server failed", zap.Error(err))
 		}
 	}()
 
@@ -416,11 +502,18 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("[INFO] shutting down server...")
+	logger.Info("shutting down server...")
+
+	auditLogger.Log(nil, &audit.Event{
+		ID:     generateID(),
+		Type:   audit.EventSystemStop,
+		Status: http.StatusOK,
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("[ERROR] server shutdown error: %v", err)
+		logger.Error("server shutdown error", zap.Error(err))
 	}
-	log.Println("[INFO] server stopped")
+	logger.Info("server stopped")
 }

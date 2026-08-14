@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swarm-shield-config
+  namespace: swarm-shield
+data:
+  PORT: "8080"
+  REDIS_ENABLED: "true"
+  REDIS_ADDR: "redis-master:6379"
+  POSTGRES_ENABLED: "true"
+  DATABASE_URL: "postgres://swarm:${POSTGRES_PASSWORD}@postgres:5432/swarm_shield?sslmode=require"
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_RPM: "120"
+  METRICS_ENABLED: "true"
+  FEATURE_P2P: "true"
+  FEATURE_POW: "true"
+  FEATURE_WEBSOCKET: "true"
+  FEATURE_AUDIT_LOG: "true"

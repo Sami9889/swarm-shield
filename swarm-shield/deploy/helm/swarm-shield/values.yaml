@@ -1,0 +1,64 @@
+replicaCount: 3
+
+image:
+  repository: swarm-shield
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 9090
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: api.swarm-shield.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: swarm-shield-tls
+      hosts:
+        - api.swarm-shield.example.com
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 70
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "${REDIS_PASSWORD}"
+
+postgresql:
+  enabled: true
+  auth:
+    username: swarm
+    password: "${POSTGRES_PASSWORD}"
+    database: swarm_shield
+
+config:
+  PORT: "8080"
+  REDIS_ENABLED: "true"
+  POSTGRES_ENABLED: "true"
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_RPM: "120"
+  METRICS_ENABLED: "true"
+  FEATURE_P2P: "true"
+  FEATURE_POW: "true"
+
+secrets:
+  JWT_SECRET: "${JWT_SECRET}"
