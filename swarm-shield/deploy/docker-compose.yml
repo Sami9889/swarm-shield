@@ -8,7 +8,20 @@ services:
     ports:
       - "8080:8080"
       - "9090:9090"
-    env_file: .env
+    environment:
+      - PORT=${PORT:-8080}
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      - REDIS_ADDR=redis:6379
+      - POSTGRES_ENABLED=${POSTGRES_ENABLED:-true}
+      - DATABASE_URL=postgres://swarm:${POSTGRES_PASSWORD:-swarm_password}@postgres:5432/${POSTGRES_DB:-swarm_shield}?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_RPM=${RATE_LIMIT_RPM:-120}
+      - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-20}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - FEATURE_AUDIT_LOG=${FEATURE_AUDIT_LOG:-true}
+      - FEATURE_P2P=${FEATURE_P2P:-true}
+      - FEATURE_POW=${FEATURE_POW:-true}
     depends_on:
       redis:
         condition: service_healthy
@@ -29,7 +42,6 @@ services:
     command: redis-server ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     ports:
       - "6379:6379"
-    env_file: .env
     volumes:
       - redis-data:/data
     healthcheck:
@@ -44,9 +56,9 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    env_file: .env
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-swarm}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-swarm_password}
       - POSTGRES_DB=${POSTGRES_DB:-swarm_shield}
     ports:
       - "5432:5432"
@@ -81,7 +93,9 @@ services:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
-    env_file: .env
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
