@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"swarm-shield/internal/auth"
 	"swarm-shield/internal/pow"
 	"swarm-shield/internal/signaling"
 )
@@ -34,6 +35,7 @@ var (
 	validator      = pow.NewValidator()
 	difficultyCalc = pow.NewDifficultyCalculator()
 	signalingStore = signaling.NewSignalingStore(5 * time.Minute)
+	authManager    = auth.NewManager(os.Getenv("JWT_SECRET"), 24*time.Hour)
 
 	// Stats.
 	totalRequests   uint64
@@ -66,7 +68,9 @@ func NewAPIServer(addr string) *APIServer {
 	mux.HandleFunc("/api/register", s.handleRegister)
 	mux.HandleFunc("/api/signal", s.handleSignal)
 	mux.HandleFunc("/api/peers", s.handlePeers)
-	mux.HandleFunc("/api/data", s.handleData)
+	mux.HandleFunc("/api/auth/login", s.handleLogin)
+	mux.Handle("/api/auth/keys", authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys)))
+	mux.Handle("/api/data", authManager.AuthMiddleware(http.HandlerFunc(s.handleData)))
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/healthz", s.handleHealth)
@@ -204,6 +208,41 @@ func (s *APIServer) handlePeers(w http.ResponseWriter, r *http.Request) {
 		"peers": peers,
 		"count": len(peers),
 	})
+}
+
+// handleLogin processes sign-in requests and returns a JWT.
+func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
+	authManager.HandleLogin(w, r)
+}
+
+// handleKeys handles API key operations (GET list, POST generate).
+func (s *APIServer) handleKeys(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		keys := authManager.ListAPIKeys()
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"keys":  keys,
+			"count": len(keys),
+		})
+	case http.MethodPost:
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Name == "" {
+			req.Name = "default"
+		}
+		key := authManager.GenerateAPIKey(req.Name)
+		respondJSON(w, http.StatusCreated, map[string]string{
+			"apiKey": key,
+			"name":   req.Name,
+		})
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 // handleData serves the primary API payload with P2P mesh-first fallback.

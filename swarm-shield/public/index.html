@@ -255,10 +255,12 @@
                 <div class="logo">🛡️</div>
                 Swarm Shield
             </h1>
-            <div class="status-badge">
+            <div class="status-badge" id="authStatus" style="display: none;">
                 <div class="status-dot"></div>
-                <span>Operational</span>
+                <span id="authText">Authenticated</span>
+                <button class="secondary" onclick="handleLogout()" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;">Logout</button>
             </div>
+            <button id="loginBtn" onclick="showLoginModal()">Sign In</button>
         </header>
 
         <div class="grid">
@@ -315,6 +317,7 @@
         </div>
     </div>
 
+    <script src="js/auth.js"></script>
     <script src="js/pow-worker.js"></script>
     <script src="js/webrtc-mesh.js"></script>
     <script>
@@ -412,7 +415,11 @@
 
         function fetchData() {
             log('Fetching data from origin...', 'info');
-            fetch(`${API_BASE}/api/data`)
+            const headers = { 'Content-Type': 'application/json' };
+            if (Auth.isLoggedIn()) {
+                headers['Authorization'] = `Bearer ${Auth.getToken()}`;
+            }
+            fetch(`${API_BASE}/api/data`, { headers })
                 .then(r => r.json())
                 .then(data => {
                     log(`Data received: source=${data.source}`, 'info');
@@ -465,6 +472,85 @@
                 })
                 .catch(() => {});
         }
+    </script>
+
+    <!-- Login Modal -->
+    <div id="loginModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; max-width: 400px; width: 90%;">
+            <h2 style="margin-bottom: 1rem;">Sign In</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.875rem;">Enter your API key to authenticate.</p>
+            <input type="text" id="apiKeyInput" placeholder="swarm-..." style="width: 100%; padding: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-family: var(--font-mono); margin-bottom: 1rem;">
+            <div style="display: flex; gap: 1rem;">
+                <button onclick="handleLogin()">Sign In</button>
+                <button class="secondary" onclick="hideLoginModal()">Cancel</button>
+            </div>
+            <p id="loginError" style="color: var(--danger); margin-top: 0.75rem; font-size: 0.875rem; display: none;"></p>
+        </div>
+    </div>
+
+    <script>
+        function showLoginModal() {
+            document.getElementById('loginModal').style.display = 'flex';
+            document.getElementById('apiKeyInput').focus();
+        }
+
+        function hideLoginModal() {
+            document.getElementById('loginModal').style.display = 'none';
+            document.getElementById('loginError').style.display = 'none';
+        }
+
+        async function handleLogin() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            const errorEl = document.getElementById('loginError');
+
+            if (!apiKey) {
+                errorEl.textContent = 'Please enter an API key';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            try {
+                await Auth.login(apiKey);
+                hideLoginModal();
+                updateAuthUI();
+                log('Signed in successfully', 'info');
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        function handleLogout() {
+            Auth.logout();
+            updateAuthUI();
+            log('Signed out', 'warn');
+        }
+
+        function updateAuthUI() {
+            const loginBtn = document.getElementById('loginBtn');
+            const authStatus = document.getElementById('authStatus');
+            const authText = document.getElementById('authText');
+
+            if (Auth.isLoggedIn()) {
+                loginBtn.style.display = 'none';
+                authStatus.style.display = 'flex';
+                authText.textContent = 'Authenticated';
+            } else {
+                loginBtn.style.display = 'inline-block';
+                authStatus.style.display = 'none';
+            }
+        }
+
+        // Handle Enter key in login modal.
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('apiKeyInput');
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') handleLogin();
+                });
+            }
+            updateAuthUI();
+        });
     </script>
 </body>
 </html>

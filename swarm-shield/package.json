@@ -1,0 +1,22 @@
+{
+  "name": "swarm-shield",
+  "version": "1.0.0",
+  "description": "Production-grade WebRTC P2P swarm mesh with adaptive PoW DDoS protection",
+  "scripts": {
+    "dev": "go run main.go",
+    "build": "docker build -t swarm-shield .",
+    "start": "docker run -p 8080:8080 swarm-shield",
+    "test": "go test ./...",
+    "lint": "gofmt -w . && go vet ./...",
+    "generate-api-key": "node -e \"console.log('swarm-' + require('crypto').randomBytes(24).toString('hex'))\""
+  },
+  "keywords": [
+    "webrtc",
+    "p2p",
+    "ddos-protection",
+    "pow",
+    "swarm",
+    "api-gateway"
+  ],
+  "license": "MIT"
+}
