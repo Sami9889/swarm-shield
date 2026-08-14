@@ -2,7 +2,7 @@
 FROM golang:1.22-alpine AS builder
 
 # Install build dependencies.
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache git ca-certificates tzdata openssl
 
 WORKDIR /build
 
@@ -21,8 +21,13 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o /swarm-shield \
     main.go
 
-# Stage 2: Scratch (minimal final image)
-FROM scratch
+# Stage 2: Minimal final image with shell for entrypoint
+FROM alpine:3.19
+
+# Install ca-certificates, tzdata, and openssl for secret decryption
+RUN apk add --no-cache ca-certificates tzdata openssl
+
+WORKDIR /app
 
 # Copy CA certificates for TLS.
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
@@ -33,15 +38,16 @@ COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 # Copy the static binary.
 COPY --from=builder /swarm-shield /swarm-shield
 
+# Copy entrypoint script.
+COPY deploy/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Expose ports.
 EXPOSE 8080 9090
 
-# Run as non-root user (nobody exists in scratch).
-USER 65534:65534
-
 # Health check.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD ["/swarm-shield", "-healthcheck"] || exit 1
+    CMD wget --spider -q http://localhost:8080/healthz || exit 1
 
-# Entrypoint.
-ENTRYPOINT ["/swarm-shield"]
+# Entrypoint that decrypts secrets before starting.
+ENTRYPOINT ["/entrypoint.sh"]

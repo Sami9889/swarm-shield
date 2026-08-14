@@ -1,0 +1,20 @@
+# Sensitive files
+.env
+secrets/
+*.key
+*.pem
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db

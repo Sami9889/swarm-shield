@@ -9,26 +9,26 @@ services:
       - "8080:8080"
       - "9090:9090"
     environment:
-      - PORT=8080
-      - REDIS_ENABLED=true
+      - PORT=${PORT:-8080}
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
       - REDIS_ADDR=redis:6379
-      - POSTGRES_ENABLED=true
-      - DATABASE_URL=postgres://swarm:swarm_password@postgres:5432/swarm_shield?sslmode=disable
+      - POSTGRES_ENABLED=${POSTGRES_ENABLED:-true}
+      - DATABASE_URL=postgres://swarm:${POSTGRES_PASSWORD:-swarm_password}@postgres:5432/${POSTGRES_DB:-swarm_shield}?sslmode=disable
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
-      - RATE_LIMIT_ENABLED=true
-      - RATE_LIMIT_RPM=120
-      - RATE_LIMIT_BURST=20
-      - METRICS_ENABLED=true
-      - FEATURE_AUDIT_LOG=true
-      - FEATURE_P2P=true
-      - FEATURE_POW=true
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_RPM=${RATE_LIMIT_RPM:-120}
+      - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-20}
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - FEATURE_AUDIT_LOG=${FEATURE_AUDIT_LOG:-true}
+      - FEATURE_P2P=${FEATURE_P2P:-true}
+      - FEATURE_POW=${FEATURE_POW:-true}
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -39,16 +39,17 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    command: redis-server ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a ${REDIS_PASSWORD}} ping | grep PONG"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
     networks:
       - swarm-net
@@ -56,19 +57,20 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_USER=swarm
+      - POSTGRES_USER=${POSTGRES_USER:-swarm}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-swarm_password}
-      - POSTGRES_DB=swarm_shield
+      - POSTGRES_DB=${POSTGRES_DB:-swarm_shield}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ../deploy/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U swarm -d swarm_shield"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-swarm} -d ${POSTGRES_DB:-swarm_shield}"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
     networks:
       - swarm-net
@@ -78,7 +80,7 @@ services:
     ports:
       - "9091:9090"
     volumes:
-      - ../deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -93,9 +95,11 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
     volumes:
       - grafana-data:/var/lib/grafana
-      - ../deploy/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
     restart: unless-stopped
     networks:
       - swarm-net
