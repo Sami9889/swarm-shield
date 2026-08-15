@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// SecureHeadersMiddleware adds security headers to all responses.
 func SecureHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -20,19 +19,16 @@ func SecureHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 
-		// HSTS for HTTPS environments.
 		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 		}
 
-		// Content Security Policy - restrictive for API + static assets.
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 
 		next.ServeHTTP(w, r)
 	})
 }
 
-// CORSMiddleware handles Cross-Origin Resource Sharing.
 type CORSMiddleware struct {
 	allowedOrigins []string
 	allowedMethods []string
@@ -40,7 +36,6 @@ type CORSMiddleware struct {
 	maxAge          int
 }
 
-// NewCORSMiddleware creates a new CORS middleware.
 func NewCORSMiddleware(allowedOrigins []string) *CORSMiddleware {
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{"*"}
@@ -57,7 +52,6 @@ func (c *CORSMiddleware) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		// Check if origin is allowed.
 		allowed := false
 		for _, allowedOrigin := range c.allowedOrigins {
 			if allowedOrigin == "*" || allowedOrigin == origin {
@@ -74,7 +68,6 @@ func (c *CORSMiddleware) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
-		// Handle preflight.
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -84,7 +77,6 @@ func (c *CORSMiddleware) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// RequestSizeMiddleware limits request body size.
 func RequestSizeMiddleware(maxSize int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +89,6 @@ func RequestSizeMiddleware(maxSize int64) func(http.Handler) http.Handler {
 	}
 }
 
-// TimeoutMiddleware adds a timeout to request handling.
 func TimeoutMiddleware(timeout time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +100,6 @@ func TimeoutMiddleware(timeout time.Duration) func(http.Handler) http.Handler {
 	}
 }
 
-// RecoveryMiddleware recovers from panics and returns a 500 error.
 func RecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -121,7 +111,6 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// RequestIDMiddleware adds a unique request ID for tracing.
 func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := r.Header.Get("X-Request-ID")

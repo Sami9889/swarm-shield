@@ -170,7 +170,6 @@ func (p *Parser) parseStatement() (Statement, error) {
 		return p.parseAssignStmt()
 	}
 	if p.match(TokenIdent) {
-		// Try bare assignment: key = value
 		pos := p.pos
 		ident := p.Current.Literal
 		p.advance()
@@ -181,7 +180,6 @@ func (p *Parser) parseStatement() (Statement, error) {
 				return &AssignStmt{Key: ident, Value: val}, nil
 			}
 		}
-		// Not an assignment, backtrack
 		p.pos = pos
 		p.Current = p.tokens[p.pos]
 	}

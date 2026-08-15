@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// EventType represents the type of audit event.
 type EventType string
 
 const (
@@ -26,7 +25,6 @@ const (
 	EventSystemStop      EventType = "system_stop"
 )
 
-// Event represents an audit log entry.
 type Event struct {
 	ID        string            `json:"id"`
 	Type      EventType         `json:"type"`
@@ -43,17 +41,14 @@ type Event struct {
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
-// Logger handles audit logging.
 type Logger struct {
 	logger *zap.Logger
 }
 
-// NewLogger creates a new audit logger.
 func NewLogger(logger *zap.Logger) *Logger {
 	return &Logger{logger: logger}
 }
 
-// Log writes an audit event.
 func (l *Logger) Log(ctx context.Context, event *Event) {
 	event.Timestamp = time.Now().UTC()
 
@@ -93,12 +88,10 @@ func (l *Logger) Log(ctx context.Context, event *Event) {
 
 	l.logger.Info("audit", fields...)
 
-	// TODO: Persist to database for long-term retention.
 	_ = ctx
 	_, _ = json.Marshal(event)
 }
 
-// LogLogin logs a login event.
 func (l *Logger) LogLogin(actor, apiKey, ipAddress, userAgent string, success bool, status int) {
 	l.Log(nil, &Event{
 		ID:        generateEventID(),
@@ -114,7 +107,6 @@ func (l *Logger) LogLogin(actor, apiKey, ipAddress, userAgent string, success bo
 	})
 }
 
-// LogAPICall logs an API call event.
 func (l *Logger) LogAPICall(actor, apiKey, endpoint, method, ipAddress, userAgent string, status int, duration int64) {
 	l.Log(nil, &Event{
 		ID:        generateEventID(),
@@ -130,7 +122,6 @@ func (l *Logger) LogAPICall(actor, apiKey, endpoint, method, ipAddress, userAgen
 	})
 }
 
-// LogRateLimitHit logs a rate limit hit event.
 func (l *Logger) LogRateLimitHit(apiKey, ipAddress, endpoint string) {
 	l.Log(nil, &Event{
 		ID:        generateEventID(),
@@ -142,7 +133,6 @@ func (l *Logger) LogRateLimitHit(apiKey, ipAddress, endpoint string) {
 	})
 }
 
-// LogAuthFailure logs an authentication failure.
 func (l *Logger) LogAuthFailure(ipAddress, endpoint, reason string) {
 	l.Log(nil, &Event{
 		ID:        generateEventID(),

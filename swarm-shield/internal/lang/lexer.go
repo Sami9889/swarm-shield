@@ -124,7 +124,7 @@ func (l *Lexer) SkipWhitespace() {
 
 func (l *Lexer) ReadString(quote rune) (string, error) {
 	var sb strings.Builder
-	l.Next() // skip opening quote
+	l.Next() 
 	for {
 		ch := l.Next()
 		if ch == 0 {
@@ -182,7 +182,6 @@ func (l *Lexer) ReadIdent() string {
 
 func (l *Lexer) ReadComment() string {
 	var sb strings.Builder
-	// already consumed //
 	for {
 		ch := l.Next()
 		if ch == '\n' || ch == 0 {
@@ -305,7 +304,6 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokType := TokenIdent
 				switch ident {
 				case "define", "if", "else", "allow", "deny", "log", "alert", "set", "redact", "on", "event", "true", "false", "null":
-					// keep as ident, handled by parser
 				}
 				tokens = append(tokens, Token{Type: tokType, Literal: ident, Line: startLine, Column: startCol})
 				continue

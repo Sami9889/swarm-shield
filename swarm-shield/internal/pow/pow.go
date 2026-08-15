@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// Challenge represents an active PoW challenge issued to a client.
 type Challenge struct {
 	Token      string
 	Difficulty int
@@ -19,20 +18,17 @@ type Challenge struct {
 	ExpiresAt  time.Time
 }
 
-// Validator validates PoW solutions and manages challenge lifecycle.
 type Validator struct {
 	mu         sync.RWMutex
 	challenges map[string]*Challenge
 }
 
-// NewValidator creates a new PoW validator with background cleanup.
 func NewValidator() *Validator {
 	v := &Validator{challenges: make(map[string]*Challenge)}
 	go v.cleanupLoop()
 	return v
 }
 
-// GenerateChallenge creates a new random challenge token with the given difficulty.
 func (v *Validator) GenerateChallenge(difficulty int, clientIP string) *Challenge {
 	if difficulty < 1 {
 		difficulty = 1
@@ -64,8 +60,6 @@ func (v *Validator) GenerateChallenge(difficulty int, clientIP string) *Challeng
 	return ch
 }
 
-// Verify checks whether a nonce satisfies the PoW difficulty for the given token.
-// The proof is: SHA-256(token + nonce) must start with `difficulty` zero hex characters.
 func (v *Validator) Verify(token, nonce, clientIP string, difficulty int) bool {
 	if difficulty < 1 || difficulty > 6 {
 		return false
@@ -79,7 +73,6 @@ func (v *Validator) Verify(token, nonce, clientIP string, difficulty int) bool {
 		return false
 	}
 
-	// Challenge must not be expired.
 	if time.Now().After(challenge.ExpiresAt) {
 		v.mu.Lock()
 		delete(v.challenges, token)
@@ -87,7 +80,6 @@ func (v *Validator) Verify(token, nonce, clientIP string, difficulty int) bool {
 		return false
 	}
 
-	// Challenge must be bound to the same client IP.
 	if challenge.ClientIP != "" && clientIP != "" && challenge.ClientIP != clientIP {
 		return false
 	}
@@ -104,7 +96,6 @@ func (v *Validator) Verify(token, nonce, clientIP string, difficulty int) bool {
 	return true
 }
 
-// ConsumeChallenge removes a challenge after successful use to prevent replay.
 func (v *Validator) ConsumeChallenge(token string) bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -116,7 +107,6 @@ func (v *Validator) ConsumeChallenge(token string) bool {
 	return false
 }
 
-// cleanupLoop periodically removes stale challenges older than 60 seconds.
 func (v *Validator) cleanupLoop() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -133,7 +123,6 @@ func (v *Validator) cleanupLoop() {
 	}
 }
 
-// DifficultyCalculator computes required leading-zero difficulty based on observed RPS.
 type DifficultyCalculator struct {
 	mu          sync.RWMutex
 	rpsBuckets  []uint64
@@ -142,7 +131,6 @@ type DifficultyCalculator struct {
 	lastTick    time.Time
 }
 
-// NewDifficultyCalculator creates a calculator backed by a rolling 5-second window.
 func NewDifficultyCalculator() *DifficultyCalculator {
 	dc := &DifficultyCalculator{
 		rpsBuckets: make([]uint64, 0),
@@ -154,7 +142,6 @@ func NewDifficultyCalculator() *DifficultyCalculator {
 	return dc
 }
 
-// RecordRequest increments the counter for the current time bucket.
 func (dc *DifficultyCalculator) RecordRequest() {
 	now := time.Now()
 	dc.mu.Lock()
@@ -168,7 +155,6 @@ func (dc *DifficultyCalculator) RecordRequest() {
 	}
 }
 
-// CalculateDifficulty returns a difficulty level from 1 to 6 based on recent RPS.
 func (dc *DifficultyCalculator) CalculateDifficulty() int {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
@@ -196,7 +182,6 @@ func (dc *DifficultyCalculator) CalculateDifficulty() int {
 	}
 }
 
-// GetCurrentRPS returns the current requests-per-second estimate.
 func (dc *DifficultyCalculator) GetCurrentRPS() float64 {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -209,7 +194,6 @@ func (dc *DifficultyCalculator) GetCurrentRPS() float64 {
 	return float64(total) / dc.windowSize.Seconds()
 }
 
-// tickerLoop prunes old buckets every second.
 func (dc *DifficultyCalculator) tickerLoop() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -233,7 +217,6 @@ func (dc *DifficultyCalculator) tickerLoop() {
 	}
 }
 
-// EstimateNonceSpace estimates the number of nonces needed on average for a given difficulty.
 func EstimateNonceSpace(difficulty int) float64 {
 	return math.Pow(16, float64(difficulty))
 }
