@@ -12,7 +12,7 @@
         "datasource": "Prometheus",
         "targets": [
           {
-            "expr": "swarm_total_requests",
+            "expr": "swarm_shield_requests_total",
             "legendFormat": "Total Requests"
           }
         ]
@@ -24,7 +24,7 @@
         "datasource": "Prometheus",
         "targets": [
           {
-            "expr": "swarm_p2p_hits",
+            "expr": "swarm_shield_p2p_connections",
             "legendFormat": "P2P Hits"
           }
         ]
