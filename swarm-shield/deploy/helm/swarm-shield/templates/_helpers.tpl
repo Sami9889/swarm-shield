@@ -1,5 +1,5 @@
 {{- /*
-Copyright (c) 2024 Swarm Shield Team
+Copyright (c) 2024 Samrath Singh (ABN: 72 925 087 373)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

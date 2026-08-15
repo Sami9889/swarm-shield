@@ -4,8 +4,9 @@ info:
   description: Production-grade WebRTC P2P swarm mesh with adaptive PoW DDoS protection
   version: 1.0.0
   contact:
-    name: Swarm Shield Team
-    email: ops@example.com
+    name: Samrath Singh
+    email: sami@sami-s.dev
+    url: https://sami-s.dev
 
 servers:
   - url: https://api.swarm-shield.example.com
