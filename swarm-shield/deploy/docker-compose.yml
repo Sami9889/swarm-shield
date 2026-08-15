@@ -93,6 +93,7 @@ services:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
+    entrypoint: ["/bin/bash", "/etc/grafana/grafana-entrypoint.sh"]
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
@@ -100,6 +101,13 @@ services:
       - grafana-data:/var/lib/grafana
       - ./grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana-entrypoint.sh:/etc/grafana/grafana-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
     networks:
       - swarm-net
