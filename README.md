@@ -67,3 +67,25 @@ npm run build    # Build Docker image
 npm test         # Run tests
 npm run lint     # Format and lint Go code
 ```
+
+## Legal
+
+**Copyright © 2024 Samrath Singh. All rights reserved.**
+
+ABN: 72 925 087 373  
+Point Cook, VIC, Australia
+
+This project is open source and available under the Apache License 2.0.
+See the [LICENSE](LICENSE) file for more details.
+
+## Contributing
+
+Contributions are welcome. Please ensure all commits are signed off and
+follow the project's code style. For major changes, open an issue first
+to discuss what you would like to change.
+
+<environment_details>
+Current time: 2026-08-15T10:59:36+00:00
+Working directory: /workspace/1254b264-94a7-4c61-a6f4-5348c476bcdc/sessions/agent_538cbf09-2cf3-4ec7-8302-f57c5181d61b
+Workspace root folder: /workspace/1254b264-94a7-4c61-a6f4-5348c476bcdc/sessions/agent_538cbf09-2cf3-4ec7-8302-f57c5181d61b
+</environment_details>
