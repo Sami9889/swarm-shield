@@ -66,7 +66,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-swarm} -d ${POSTGRES_DB:-swarm_shield}"]
+      test: ["CMD-SHELL", "pg_isready -U swarm -d swarm_shield"]
       interval: 10s
       timeout: 3s
       retries: 5
