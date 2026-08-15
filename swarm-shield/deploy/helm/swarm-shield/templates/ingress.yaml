@@ -1,25 +1,54 @@
+{{- /*
+Copyright (c) 2024 Swarm Shield Team
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/ -}}
+
+{{- if and .Values.ingress.enabled .Values.ingress.hosts }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: swarm-shield
-  namespace: swarm-shield
+  name: {{ include "swarm-shield.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "swarm-shield.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
   annotations:
-    kubernetes.io/ingress.class: "nginx"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
+  ingressClassName: {{ .Values.ingress.className }}
   tls:
+    {{- range .Values.ingress.tls }}
     - hosts:
-        - api.swarm-shield.example.com
-      secretName: swarm-shield-tls
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
   rules:
-    - host: api.swarm-shield.example.com
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
       http:
         paths:
-          - path: /
-            pathType: Prefix
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
             backend:
               service:
-                name: swarm-shield
+                name: {{ include "swarm-shield.fullname" $ }}
                 port:
-                  number: 8080
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

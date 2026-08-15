@@ -1,18 +1,56 @@
-replicaCount: 3
+# Swarm Shield Helm Chart Values
+# Production-grade configuration for enterprise Kubernetes deployments
+#
+# Documentation:
+#   https://github.com/Sami9889/swarm-shield/tree/main/deploy/helm/swarm-shield
 
+# -----------------------------------------------------------------------------
+# Global Configuration
+# -----------------------------------------------------------------------------
+global:
+  environment: production
+  domain: api.swarm-shield.example.com
+
+# -----------------------------------------------------------------------------
+# Service Account
+# -----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Image Configuration
+# -----------------------------------------------------------------------------
 image:
-  repository: swarm-shield
-  tag: latest
+  registry: ghcr.io
+  repository: sami9889/swarm-shield
+  tag: "1.0.0"
   pullPolicy: IfNotPresent
+  pullSecrets: []
 
+# -----------------------------------------------------------------------------
+# Service Configuration
+# -----------------------------------------------------------------------------
 service:
   type: ClusterIP
   port: 8080
   metricsPort: 9090
+  annotations: {}
 
+# -----------------------------------------------------------------------------
+# Ingress Configuration
+# -----------------------------------------------------------------------------
 ingress:
   enabled: true
   className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/rate-limit: "120"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
   hosts:
     - host: api.swarm-shield.example.com
       paths:
@@ -23,6 +61,9 @@ ingress:
       hosts:
         - api.swarm-shield.example.com
 
+# -----------------------------------------------------------------------------
+# Resource Configuration
+# -----------------------------------------------------------------------------
 resources:
   requests:
     cpu: 500m
@@ -31,34 +72,180 @@ resources:
     cpu: "2"
     memory: 2Gi
 
+# -----------------------------------------------------------------------------
+# Autoscaling Configuration
+# -----------------------------------------------------------------------------
 autoscaling:
   enabled: true
   minReplicas: 3
   maxReplicas: 100
   targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
 
+# -----------------------------------------------------------------------------
+# Pod Disruption Budget
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# -----------------------------------------------------------------------------
+# Node Affinity and Tolerations
+# -----------------------------------------------------------------------------
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: swarm-shield
+          topologyKey: kubernetes.io/hostname
+
+# -----------------------------------------------------------------------------
+# Security Context
+# -----------------------------------------------------------------------------
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# -----------------------------------------------------------------------------
+# Redis Configuration
+# -----------------------------------------------------------------------------
 redis:
   enabled: true
   auth:
     enabled: true
-    password: "${REDIS_PASSWORD}"
+    existingSecret: swarm-shield-secrets
+    existingSecretPasswordKey: redis_password
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    configuration:
+      maxmemory: 256mb
+      maxmemory-policy: allkeys-lru
 
+# -----------------------------------------------------------------------------
+# PostgreSQL Configuration
+# -----------------------------------------------------------------------------
 postgresql:
   enabled: true
   auth:
     username: swarm
-    password: "${POSTGRES_PASSWORD}"
+    existingSecret: swarm-shield-secrets
+    existingSecretPasswordKey: postgres_password
     database: swarm_shield
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    configuration:
+      ssl: "off"
 
+# -----------------------------------------------------------------------------
+# Application Configuration
+# -----------------------------------------------------------------------------
 config:
   PORT: "8080"
+  HOST: "0.0.0.0"
   REDIS_ENABLED: "true"
+  REDIS_ADDR: "redis-master:6379"
   POSTGRES_ENABLED: "true"
+  DATABASE_URL: "postgres://swarm:$(POSTGRES_PASSWORD)@postgresql:5432/swarm_shield?sslmode=require"
   RATE_LIMIT_ENABLED: "true"
   RATE_LIMIT_RPM: "120"
+  RATE_LIMIT_BURST: "20"
   METRICS_ENABLED: "true"
+  METRICS_ENDPOINT: "0.0.0.0"
+  METRICS_PATH: "/metrics"
   FEATURE_P2P: "true"
   FEATURE_POW: "true"
+  FEATURE_WEBSOCKET: "true"
+  FEATURE_AUDIT_LOG: "true"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
 
+# -----------------------------------------------------------------------------
+# Secrets Configuration
+# -----------------------------------------------------------------------------
 secrets:
-  JWT_SECRET: "${JWT_SECRET}"
+  # Secrets should be created externally or via:
+  #   kubectl create secret generic swarm-shield-secrets \
+  #     --from-literal=jwt_secret=<value> \
+  #     --from-literal=postgres_password=<value> \
+  #     --from-literal=redis_password=<value> \
+  #     --from-literal=grafana_password=<value>
+  existingSecret: swarm-shield-secrets
+
+# -----------------------------------------------------------------------------
+# Service Monitor for Prometheus
+# -----------------------------------------------------------------------------
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+  port: metrics
+
+# -----------------------------------------------------------------------------
+# Network Policy
+# -----------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  allowExternal: true
+  allowedNamespaces: []
+  allowedExternal: []
+
+# -----------------------------------------------------------------------------
+# Grafana Configuration
+# -----------------------------------------------------------------------------
+grafana:
+  enabled: false
+  adminPassword: admin
+  service:
+    port: 3000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi

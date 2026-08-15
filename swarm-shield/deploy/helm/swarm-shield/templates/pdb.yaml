@@ -14,27 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */ -}}
 
-apiVersion: v1
-kind: Service
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
 metadata:
   name: {{ include "swarm-shield.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "swarm-shield.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - name: http
-      port: {{ .Values.service.port }}
-      targetPort: 8080
-      protocol: TCP
-    - name: metrics
-      port: {{ .Values.service.metricsPort }}
-      targetPort: 9090
-      protocol: TCP
-  selector:
-    {{- include "swarm-shield.selectorLabels" . | nindent 6 }}
-  {{- with .Values.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   {{- end }}
+  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "swarm-shield.selectorLabels" . | nindent 6 }}
+{{- end }}
