@@ -1,20 +1,3 @@
-#!/usr/bin/env bash
-#
-# Swarm Shield Secret Decryption Utility
-#
-# Decrypts AES-256-CBC encrypted secrets at runtime.
-# Used by entrypoint.sh and can be called directly for debugging.
-#
-# Usage:
-#   ./scripts/decrypt.sh <secret_name>
-#
-# Environment:
-#   SECRETS_DIR - Directory containing encrypted secrets (default: /run/secrets/swarm-shield)
-#
-# Exit codes:
-#   0 - Secret decrypted successfully
-#   1 - Secret not found or decryption failed
-
 set -euo pipefail
 
 SECRETS_DIR="${SECRETS_DIR:-/run/secrets/swarm-shield}"

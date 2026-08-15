@@ -1,21 +1,3 @@
-#!/usr/bin/env bash
-#
-# Swarm Shield Enterprise Entrypoint
-#
-# Handles secret injection from multiple sources:
-#   1. Docker secrets (file-based) - highest priority
-#   2. Encrypted secrets (AES-256-CBC) - fallback
-#   3. Environment variables - lowest priority
-#
-# Secret resolution order:
-#   - ${VAR}_FILE: Docker secret file path (e.g., JWT_SECRET_FILE=/run/secrets/jwt_secret)
-#   - Encrypted file: /run/secrets/swarm-shield/{name}.enc
-#   - Environment variable: ${VAR}
-#
-# Exit codes:
-#   0 - Entrypoint completed successfully
-#   1 - Failed to resolve required secrets
-
 set -euo pipefail
 
 readonly SECRETS_DIR="/run/secrets/swarm-shield"

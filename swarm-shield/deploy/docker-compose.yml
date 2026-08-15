@@ -1,17 +1,5 @@
-# Swarm Shield Enterprise Deployment
-# Production-grade Docker Compose configuration with resource constraints,
-# secrets management, and enterprise logging configuration.
-#
-# Usage:
-#   docker compose -f deploy/docker-compose.yml --env-file .env up -d
-#
-# Environment variables are loaded from .env file. See .env.example for all options.
-
 version: '3.8'
 
-# =============================================================================
-# Secrets
-# =============================================================================
 secrets:
   jwt_secret:
     file: ./secrets/jwt_secret.txt
@@ -22,9 +10,6 @@ secrets:
   grafana_password:
     file: ./secrets/grafana_password.txt
 
-# =============================================================================
-# Networks
-# =============================================================================
 networks:
   swarm-net:
     driver: bridge
@@ -37,9 +22,6 @@ networks:
     driver: bridge
     internal: true
 
-# =============================================================================
-# Volumes
-# =============================================================================
 volumes:
   redis-data:
     driver: local
@@ -50,13 +32,7 @@ volumes:
   grafana-data:
     driver: local
 
-# =============================================================================
-# Services
-# =============================================================================
 services:
-  # ---------------------------------------------------------------------------
-  # Swarm Shield API Gateway
-  # ---------------------------------------------------------------------------
   swarm-shield:
     build:
       context: ..
@@ -143,9 +119,6 @@ services:
         soft: 65536
         hard: 65536
 
-  # ---------------------------------------------------------------------------
-  # Redis Cache & Session Store
-  # ---------------------------------------------------------------------------
   redis:
     image: redis:7.2-alpine
     command: >
@@ -209,9 +182,6 @@ services:
       - no-new-privileges: true
       - run-as-user: "999"
 
-  # ---------------------------------------------------------------------------
-  # PostgreSQL Database
-  # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16.3-alpine
     secrets:
@@ -267,9 +237,6 @@ services:
       - no-new-privileges: true
       - run-as-user: "70:70"
 
-  # ---------------------------------------------------------------------------
-  # Prometheus Metrics Collection
-  # ---------------------------------------------------------------------------
   prometheus:
     image: prom/prometheus:v2.49.0
     ports:
@@ -322,9 +289,6 @@ services:
       - no-new-privileges: true
       - run-as-user: "65534:65534"
 
-  # ---------------------------------------------------------------------------
-  # Grafana Metrics Visualization
-  # ---------------------------------------------------------------------------
   grafana:
     image: grafana/grafana:10.3.0
     ports:
