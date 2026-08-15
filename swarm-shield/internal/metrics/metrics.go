@@ -8,7 +8,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// Metrics holds all Prometheus metrics.
 type Metrics struct {
 	RequestsTotal      prometheus.Counter
 	RequestDuration    prometheus.Histogram
@@ -22,7 +21,6 @@ type Metrics struct {
 	WebSocketMessages  prometheus.Counter
 }
 
-// NewMetrics creates and registers all metrics.
 func NewMetrics() *Metrics {
 	m := &Metrics{}
 
@@ -80,7 +78,6 @@ func NewMetrics() *Metrics {
 	return m
 }
 
-// Middleware returns Prometheus metrics middleware.
 func (m *Metrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

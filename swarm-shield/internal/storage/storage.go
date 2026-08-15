@@ -8,12 +8,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// Store provides database operations for swarm-shield.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
-// NewStore creates a new database store.
 func NewStore(databaseURL string, maxConns, idleConns int) (*Store, error) {
 	poolConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -38,19 +36,16 @@ func NewStore(databaseURL string, maxConns, idleConns int) (*Store, error) {
 	return store, nil
 }
 
-// Close closes the database connection pool.
 func (s *Store) Close() {
 	if s.pool != nil {
 		s.pool.Close()
 	}
 }
 
-// Ping verifies database connectivity.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
-// migrate runs database migrations.
 func (s *Store) migrate(ctx context.Context) error {
 	schema := []string{
 		`CREATE TABLE IF NOT EXISTS api_keys (
@@ -99,9 +94,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
-// APIKey operations.
 
-// SaveAPIKey persists an API key hash.
 func (s *Store) SaveAPIKey(ctx context.Context, keyHash, name string) error {
 	_, err := s.pool.Exec(ctx,
 		"INSERT INTO api_keys (key_hash, name) VALUES ($1, $2)",
@@ -109,7 +102,6 @@ func (s *Store) SaveAPIKey(ctx context.Context, keyHash, name string) error {
 	return err
 }
 
-// RevokeAPIKey marks an API key as revoked.
 func (s *Store) RevokeAPIKey(ctx context.Context, keyHash string) error {
 	_, err := s.pool.Exec(ctx,
 		"UPDATE api_keys SET active = FALSE, revoked_at = NOW() WHERE key_hash = $1",
@@ -117,7 +109,6 @@ func (s *Store) RevokeAPIKey(ctx context.Context, keyHash string) error {
 	return err
 }
 
-// UpdateAPIKeyLastUsed updates the last used timestamp.
 func (s *Store) UpdateAPIKeyLastUsed(ctx context.Context, keyHash string) error {
 	_, err := s.pool.Exec(ctx,
 		"UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1",
@@ -125,9 +116,7 @@ func (s *Store) UpdateAPIKeyLastUsed(ctx context.Context, keyHash string) error 
 	return err
 }
 
-// Audit log operations.
 
-// SaveAuditLog persists an audit log entry.
 func (s *Store) SaveAuditLog(ctx context.Context, entry *AuditLogEntry) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO audit_logs 
@@ -138,9 +127,7 @@ func (s *Store) SaveAuditLog(ctx context.Context, entry *AuditLogEntry) error {
 	return err
 }
 
-// Metrics operations.
 
-// SaveMetricsSnapshot saves a metrics snapshot.
 func (s *Store) SaveMetricsSnapshot(ctx context.Context, snapshot *MetricsSnapshot) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO metrics_snapshots 
@@ -151,7 +138,6 @@ func (s *Store) SaveMetricsSnapshot(ctx context.Context, snapshot *MetricsSnapsh
 	return err
 }
 
-// AuditLogEntry represents an audit log database entry.
 type AuditLogEntry struct {
 	EventType   string
 	Actor       string
@@ -165,7 +151,6 @@ type AuditLogEntry struct {
 	Metadata    map[string]interface{}
 }
 
-// MetricsSnapshot represents a metrics database snapshot.
 type MetricsSnapshot struct {
 	TotalRequests uint64
 	PoWVerified   uint64

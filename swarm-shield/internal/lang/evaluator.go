@@ -72,7 +72,7 @@ type EventContext struct {
 }
 
 type EvaluationResult struct {
-	Action  string // "allow", "deny", ""
+	Action  string 
 	Message string
 	Fields  map[string]Value
 }

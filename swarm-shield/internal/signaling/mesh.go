@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// PeerInfo holds signaling data for a connected client.
 type PeerInfo struct {
 	ID            string
 	WebRTCOffer   *string
@@ -18,7 +17,6 @@ type PeerInfo struct {
 	DataChannels  []string
 }
 
-// SignalingStore is an in-memory thread-safe store for WebRTC peer signaling queues.
 type SignalingStore struct {
 	mu       sync.RWMutex
 	peers    map[string]*PeerInfo
@@ -26,7 +24,6 @@ type SignalingStore struct {
 	stopChan chan struct{}
 }
 
-// NewSignalingStore creates a new signaling store with automatic TTL eviction.
 func NewSignalingStore(ttl time.Duration) *SignalingStore {
 	if ttl == 0 {
 		ttl = 5 * time.Minute
@@ -40,7 +37,6 @@ func NewSignalingStore(ttl time.Duration) *SignalingStore {
 	return store
 }
 
-// RegisterPeer adds or updates a peer in the signaling store.
 func (s *SignalingStore) RegisterPeer(id string) *PeerInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,7 +55,6 @@ func (s *SignalingStore) RegisterPeer(id string) *PeerInfo {
 	return peer
 }
 
-// UpdateOffer stores a WebRTC SDP offer for the given peer.
 func (s *SignalingStore) UpdateOffer(peerID, offerSDP string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -70,7 +65,6 @@ func (s *SignalingStore) UpdateOffer(peerID, offerSDP string) {
 	}
 }
 
-// UpdateAnswer stores a WebRTC SDP answer for the given peer.
 func (s *SignalingStore) UpdateAnswer(peerID, answerSDP string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -81,7 +75,6 @@ func (s *SignalingStore) UpdateAnswer(peerID, answerSDP string) {
 	}
 }
 
-// AddICECandidate appends an ICE candidate to a peer's signaling queue.
 func (s *SignalingStore) AddICECandidate(peerID, candidate string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -92,7 +85,6 @@ func (s *SignalingStore) AddICECandidate(peerID, candidate string) {
 	}
 }
 
-// GetPeer retrieves a peer by ID.
 func (s *SignalingStore) GetPeer(peerID string) (*PeerInfo, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -107,7 +99,6 @@ func (s *SignalingStore) GetPeer(peerID string) (*PeerInfo, bool) {
 	return &peerCopy, true
 }
 
-// GetRandomPeers returns up to `n` random peer IDs from the store.
 func (s *SignalingStore) GetRandomPeers(n int, excludeID string) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -133,7 +124,6 @@ func (s *SignalingStore) GetRandomPeers(n int, excludeID string) []string {
 	return candidates[:n]
 }
 
-// GetAllPeers returns all active peer IDs.
 func (s *SignalingStore) GetAllPeers() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -145,21 +135,18 @@ func (s *SignalingStore) GetAllPeers() []string {
 	return ids
 }
 
-// PeerCount returns the number of active peers.
 func (s *SignalingStore) PeerCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.peers)
 }
 
-// RemovePeer deletes a peer from the store.
 func (s *SignalingStore) RemovePeer(peerID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.peers, peerID)
 }
 
-// MarshalPeers returns a JSON-safe map of all peers (without sensitive ICE candidates).
 func (s *SignalingStore) MarshalPeers() []map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -179,7 +166,6 @@ func (s *SignalingStore) MarshalPeers() []map[string]interface{} {
 	return result
 }
 
-// evictionLoop periodically removes peers that have exceeded the TTL.
 func (s *SignalingStore) evictionLoop() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -201,12 +187,10 @@ func (s *SignalingStore) evictionLoop() {
 	}
 }
 
-// Stop shuts down the eviction loop.
 func (s *SignalingStore) Stop() {
 	close(s.stopChan)
 }
 
-// SignalMessage represents a WebRTC signaling message exchanged over the API.
 type SignalMessage struct {
 	Type      string `json:"type"`
 	PeerID    string `json:"peerId"`
@@ -214,13 +198,11 @@ type SignalMessage struct {
 	Candidate string `json:"candidate,omitempty"`
 }
 
-// Marshal returns the JSON-encoded signal message.
 func (m *SignalMessage) Marshal() []byte {
 	data, _ := json.Marshal(m)
 	return data
 }
 
-// ParseSignalMessage decodes a JSON signal message.
 func ParseSignalMessage(data []byte) (*SignalMessage, error) {
 	var m SignalMessage
 	if err := json.Unmarshal(data, &m); err != nil {

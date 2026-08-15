@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// Config holds all enterprise configuration.
 type Config struct {
 	Server     ServerConfig
 	Auth       AuthConfig
@@ -21,7 +20,6 @@ type Config struct {
 	Features   FeatureFlags
 }
 
-// ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
 	Host            string
 	Port            string
@@ -32,7 +30,6 @@ type ServerConfig struct {
 	RequestTimeout  time.Duration
 }
 
-// AuthConfig holds authentication configuration.
 type AuthConfig struct {
 	JWTSecret       string
 	JWTExpiry       time.Duration
@@ -43,24 +40,20 @@ type AuthConfig struct {
 	MTLS            certConfig
 }
 
-// certConfig holds certificate paths.
 type certConfig struct {
 	CertFile string
 	KeyFile  string
 	CAFile   string
 }
 
-// CORSConfig holds CORS configuration.
 type CORSConfig struct {
 	AllowedOrigins []string
 }
 
-// WebSocketConfig holds WebSocket configuration.
 type WebSocketConfig struct {
 	AllowedOrigins []string
 }
 
-// RedisConfig holds Redis connection configuration.
 type RedisConfig struct {
 	Enabled  bool
 	Addr     string
@@ -68,7 +61,6 @@ type RedisConfig struct {
 	DB       int
 }
 
-// PostgresConfig holds PostgreSQL connection configuration.
 type PostgresConfig struct {
 	Enabled    bool
 	URL        string
@@ -76,7 +68,6 @@ type PostgresConfig struct {
 	IdleConns  int
 }
 
-// RateLimitConfig holds rate limiting configuration.
 type RateLimitConfig struct {
 	Enabled           bool
 	RequestsPerMinute int
@@ -84,21 +75,18 @@ type RateLimitConfig struct {
 	TTL               time.Duration
 }
 
-// MetricsConfig holds metrics configuration.
 type MetricsConfig struct {
 	Enabled  bool
 	Endpoint string
 	Path     string
 }
 
-// TLSConfig holds TLS configuration.
 type TLSConfig struct {
 	Enabled  bool
 	CertFile string
 	KeyFile  string
 }
 
-// FeatureFlags holds feature flags.
 type FeatureFlags struct {
 	EnableP2P       bool
 	EnablePoW       bool
@@ -107,7 +95,6 @@ type FeatureFlags struct {
 	EnableMetrics   bool
 }
 
-// Load loads configuration from environment variables.
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -116,7 +103,7 @@ func Load() *Config {
 			ReadTimeout:     getDurationEnv("READ_TIMEOUT", 5*time.Second),
 			WriteTimeout:    getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
 			IdleTimeout:     getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
-			MaxRequestSize:  getInt64Env("MAX_REQUEST_SIZE", 1<<20), // 1MB default.
+			MaxRequestSize:  getInt64Env("MAX_REQUEST_SIZE", 1<<20), 
 			RequestTimeout:  getDurationEnv("REQUEST_TIMEOUT", 15*time.Second),
 		},
 		Auth: AuthConfig{
@@ -176,7 +163,6 @@ func Load() *Config {
 	}
 }
 
-// Addr returns the full server address.
 func (c *Config) Addr() string {
 	return c.Server.Host + ":" + c.Server.Port
 }
