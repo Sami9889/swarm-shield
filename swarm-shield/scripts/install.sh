@@ -69,6 +69,21 @@ check_command() {
     fi
 }
 
+resolve_sudo_user() {
+    if [ -n "${SUDO_USER:-}" ]; then
+        echo "$SUDO_USER"
+    else
+        echo "$USER"
+    fi
+}
+
+require_privileges() {
+    if [ "$(id -u)" -ne 0 ]; then
+        error "This step requires root privileges. Re-run with sudo."
+        exit 1
+    fi
+}
+
 install_go() {
     local skip="${1:-false}"
     if [ "$skip" = "true" ]; then
@@ -92,22 +107,51 @@ install_go() {
         *) error "Unsupported architecture: ${arch}"; exit 1 ;;
     esac
 
+    require_privileges
+
     local download_url="https://go.dev/dl/go${go_version}.linux-${go_arch}.tar.gz"
+    local checksum_url="${download_url}.sha256"
+    local tmp_tar
+    tmp_tar=$(mktemp /tmp/go-install.XXXXXX.tar.gz)
+
     info "Downloading Go from: ${download_url}"
 
-    if ! curl -fsSL "$download_url" -o /tmp/go.tar.gz; then
+    if ! curl -fsSL "$download_url" -o "$tmp_tar"; then
         error "Failed to download Go"
+        rm -f "$tmp_tar"
+        exit 1
+    fi
+
+    local expected_checksum
+    expected_checksum=$(curl -fsSL "$checksum_url" | tr -d '[:space:]')
+    if [ -z "$expected_checksum" ]; then
+        error "Failed to fetch Go checksum"
+        rm -f "$tmp_tar"
+        exit 1
+    fi
+
+    local actual_checksum
+    actual_checksum=$(sha256sum "$tmp_tar" | awk '{print $1}')
+
+    if [ "$actual_checksum" != "$expected_checksum" ]; then
+        error "Go tarball checksum mismatch"
+        rm -f "$tmp_tar"
         exit 1
     fi
 
     rm -rf /usr/local/go
-    tar -C /usr/local -xzf /tmp/go.tar.gz
-    rm /tmp/go.tar.gz
+    tar -C /usr/local -xzf "$tmp_tar"
+    rm -f "$tmp_tar"
 
-    if ! grep -q '/usr/local/go/bin' ~/.bashrc 2>/dev/null; then
-        echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-        echo 'export GOPATH=$HOME/go' >> ~/.bashrc
-        echo 'export PATH=$PATH:$GOPATH/bin' >> ~/.bashrc
+    local target_user
+    target_user=$(resolve_sudo_user)
+    local target_home
+    target_home=$(eval echo "~${target_user}")
+
+    if ! grep -q '/usr/local/go/bin' "${target_home}/.bashrc" 2>/dev/null; then
+        echo 'export PATH=$PATH:/usr/local/go/bin' >> "${target_home}/.bashrc"
+        echo 'export GOPATH=$HOME/go' >> "${target_home}/.bashrc"
+        echo 'export PATH=$PATH:$GOPATH/bin' >> "${target_home}/.bashrc"
     fi
 
     export PATH=$PATH:/usr/local/go/bin
@@ -199,7 +243,10 @@ setup_project() {
     if [ ! -f ".env" ]; then
         info "Creating .env configuration..."
         local jwt_secret
-        jwt_secret=$(openssl rand -hex 32 2>/dev/null || echo "change-me-in-production-$(date +%s)")
+        if ! jwt_secret=$(openssl rand -hex 32 2>/dev/null); then
+            error "Failed to generate JWT_SECRET. openssl is required."
+            exit 1
+        fi
 
         cat > .env << EOF
 

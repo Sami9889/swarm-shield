@@ -1,6 +1,7 @@
 # Sensitive files
 .env
 secrets/
+deploy/secrets/
 *.key
 *.pem
 

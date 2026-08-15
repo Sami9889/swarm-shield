@@ -145,6 +145,10 @@ main() {
     export POSTGRES_USER="$postgres_user"
     export POSTGRES_DB="$postgres_db"
 
+    if [ -z "${DATABASE_URL:-}" ]; then
+        export DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    fi
+
     log "Starting Swarm Shield with configuration:"
     log "  POSTGRES_USER: ${POSTGRES_USER}"
     log "  POSTGRES_DB: ${POSTGRES_DB}"

@@ -3,6 +3,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SECRETS_DIR="${PROJECT_ROOT}/secrets"
+DEPLOY_SECRETS_DIR="${PROJECT_ROOT}/deploy/secrets"
 ENCRYPTION_KEY_FILE="${SECRETS_DIR}/master.key"
 
 RED='\033[0;31m'
@@ -16,6 +17,7 @@ info() { printf "${CYAN}[info]${NC} %s\n" "$1"; }
 warn() { printf "${YELLOW}[warn]${NC} %s\n" "$1"; }
 error() { printf "${RED}[error]${NC} %s\n" "$1"; }
 ok() { printf "${GREEN}[ok]${NC} %s\n" "$1"; }
+
 banner() {
     printf "${BLUE}================================================================"
     printf "\n  Swarm Shield Secrets Setup"
@@ -70,7 +72,8 @@ prompt_credentials() {
     info "Enter credentials (press Enter for auto-generated secure defaults)"
     echo ""
 
-    read -rp "JWT Secret (min 32 chars, auto-generated if empty): " jwt_secret
+    read -rsp "JWT Secret (min 32 chars, auto-generated if empty): " jwt_secret
+    echo
     if [ -z "$jwt_secret" ]; then
         jwt_secret=$(openssl rand -hex 32)
         ok "Generated JWT Secret (64 hex chars)"
@@ -81,7 +84,8 @@ prompt_credentials() {
         fi
     fi
 
-    read -rp "PostgreSQL Password (min 16 chars): " postgres_password
+    read -rsp "PostgreSQL Password (min 16 chars): " postgres_password
+    echo
     if [ -z "$postgres_password" ]; then
         postgres_password=$(generate_password 24)
         ok "Generated PostgreSQL password"
@@ -92,13 +96,15 @@ prompt_credentials() {
         fi
     fi
 
-    read -rp "Redis Password (press Enter for no auth): " redis_password
+    read -rsp "Redis Password (press Enter for no auth): " redis_password
+    echo
     if [ -n "$redis_password" ] && ! validate_password "REDIS_PASSWORD" "$redis_password" 16; then
         error "REDIS_PASSWORD must be at least 16 characters"
         exit 1
     fi
 
-    read -rp "Grafana Admin Password (min 8 chars): " grafana_password
+    read -rsp "Grafana Admin Password (min 8 chars): " grafana_password
+    echo
     if [ -z "$grafana_password" ]; then
         grafana_password=$(generate_password 16)
         ok "Generated Grafana admin password"
@@ -145,7 +151,7 @@ encrypt_secret() {
 create_docker_secret() {
     local name="$1"
     local value="$2"
-    local outfile="${SECRETS_DIR}/${name}.txt"
+    local outfile="${DEPLOY_SECRETS_DIR}/${name}.txt"
 
     if [ -z "$value" ]; then
         warn "Skipping empty secret: ${name}"
@@ -203,6 +209,12 @@ main() {
         mkdir -p "$SECRETS_DIR"
         chmod 700 "$SECRETS_DIR"
         ok "Created secrets directory: ${SECRETS_DIR}"
+    fi
+
+    if [ "$mode" = "docker" ] && [ ! -d "$DEPLOY_SECRETS_DIR" ]; then
+        mkdir -p "$DEPLOY_SECRETS_DIR"
+        chmod 700 "$DEPLOY_SECRETS_DIR"
+        ok "Created deploy secrets directory: ${DEPLOY_SECRETS_DIR}"
     fi
 
     if [ "$mode" = "encrypted" ]; then
