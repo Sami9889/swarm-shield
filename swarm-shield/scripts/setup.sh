@@ -64,6 +64,32 @@ generate_password() {
     openssl rand -base64 "$((length * 3 / 4))" | tr -d '/+=' | head -c "$length"
 }
 
+read_password() {
+    local prompt="$1"
+    local var_name="$2"
+    local password=""
+    local char=""
+
+    printf "%s" "$prompt"
+    stty -echo
+    while IFS= read -r -s -n1 char; do
+        if [ "$char" = $'\n' ] || [ "$char" = $'\r' ]; then
+            printf "\n"
+            break
+        elif [ "$char" = $'\177' ] || [ "$char" = $'\b' ]; then
+            if [ ${#password} -gt 0 ]; then
+                password="${password%?}"
+                printf "\b \b"
+            fi
+        elif [ -n "$char" ]; then
+            password="$password$char"
+            printf "*"
+        fi
+    done
+    stty echo
+    eval "$var_name='$password'"
+}
+
 prompt_credentials() {
     local -a jwt_secret postgres_password redis_password grafana_password
     local postgres_user postgres_db
@@ -72,8 +98,7 @@ prompt_credentials() {
     info "Enter credentials (press Enter for auto-generated secure defaults)"
     echo ""
 
-    read -rsp "JWT Secret (min 32 chars, auto-generated if empty): " jwt_secret
-    echo
+    read_password "JWT Secret (min 32 chars, auto-generated if empty): " jwt_secret
     if [ -z "$jwt_secret" ]; then
         jwt_secret=$(openssl rand -hex 32)
         ok "Generated JWT Secret (64 hex chars)"
@@ -84,8 +109,7 @@ prompt_credentials() {
         fi
     fi
 
-    read -rsp "PostgreSQL Password (min 16 chars): " postgres_password
-    echo
+    read_password "PostgreSQL Password (min 16 chars): " postgres_password
     if [ -z "$postgres_password" ]; then
         postgres_password=$(generate_password 24)
         ok "Generated PostgreSQL password"
@@ -96,15 +120,13 @@ prompt_credentials() {
         fi
     fi
 
-    read -rsp "Redis Password (press Enter for no auth): " redis_password
-    echo
+    read_password "Redis Password (press Enter for no auth): " redis_password
     if [ -n "$redis_password" ] && ! validate_password "REDIS_PASSWORD" "$redis_password" 16; then
         error "REDIS_PASSWORD must be at least 16 characters"
         exit 1
     fi
 
-    read -rsp "Grafana Admin Password (min 8 chars): " grafana_password
-    echo
+    read_password "Grafana Admin Password (min 8 chars): " grafana_password
     if [ -z "$grafana_password" ]; then
         grafana_password=$(generate_password 16)
         ok "Generated Grafana admin password"
