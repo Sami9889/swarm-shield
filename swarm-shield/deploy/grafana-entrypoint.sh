@@ -1,23 +1,3 @@
-#!/usr/bin/env bash
-#
-# Grafana admin password synchronization entrypoint.
-#
-# Behavior:
-#   1. Starts Grafana using the image's default entrypoint when available,
-#      otherwise falls back to grafana-server.
-#   2. Waits for the HTTP health endpoint to become ready.
-#   3. Synchronizes the admin password with GF_SECURITY_ADMIN_PASSWORD
-#      using grafana-cli when available, otherwise via the HTTP API.
-#   4. Forwards all signals to the child process and waits for it to exit.
-#
-# Environment:
-#   GF_SECURITY_ADMIN_PASSWORD - Desired admin password (default: admin)
-#   GF_SECURITY_ADMIN_USER     - Admin username (default: admin)
-#
-# Exit codes:
-#   0 - Grafana exited normally
-#   1 - Failed to start Grafana
-
 set -uo pipefail
 
 readonly GF_PASSWORD="${GF_SECURITY_ADMIN_PASSWORD:-admin}"
