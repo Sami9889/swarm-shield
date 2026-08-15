@@ -66,7 +66,7 @@ generate_password() {
 
 read_password() {
     local prompt="$1"
-    local var_name="$2"
+    local varname="$2"
     local password=""
     local char=""
 
@@ -87,7 +87,7 @@ read_password() {
         fi
     done
     stty echo
-    eval "$var_name='$password'"
+    printf -v "$varname" "%s" "$password"
 }
 
 prompt_credentials() {
