@@ -70,7 +70,7 @@ npm run lint     # Format and lint Go code
 
 ## Legal
 
-**Copyright © 2024 Samrath Singh. All rights reserved.**
+**Copyright © 2026 Samrath Singh. All rights reserved.**
 
 ABN: 72 925 087 373  
 Point Cook, VIC, Australia
