@@ -39,7 +39,7 @@ services:
       context: ..
       dockerfile: Dockerfile
       cache_from:
-        - swarm-shield:1.0.0
+        - swarm-shield:latest
     ports:
       - target: 8080
         published: 8080
