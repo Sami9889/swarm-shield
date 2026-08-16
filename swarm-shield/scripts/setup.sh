@@ -73,7 +73,7 @@ read_password() {
     printf "%s" "$prompt"
     stty -echo
     while IFS= read -r -s -n1 char; do
-        if [ "$char" = $'\n' ] || [ "$char" = $'\r' ]; then
+        if [ -z "$char" ] || [ "$char" = $'\n' ] || [ "$char" = $'\r' ]; then
             printf "\n"
             break
         elif [ "$char" = $'\177' ] || [ "$char" = $'\b' ]; then
