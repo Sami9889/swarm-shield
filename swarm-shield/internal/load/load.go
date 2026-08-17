@@ -233,6 +233,8 @@ func (m *Monitor) MaxActiveConnections() int {
 	defer m.mu.RUnlock()
 	return m.maxActiveConnections
 }
+
+func (m *Monitor) Stats() map[string]interface{} {
 	m.mu.RLock()
 	state := m.state
 	active := m.activeConnections
