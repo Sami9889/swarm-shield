@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,8 @@ const (
 	BearerPrefix = "Bearer "
 	APIKeyPrefix = "swarm-"
 )
+
+var apiKeyRegexp = regexp.MustCompile("^[a-f0-9]+$")
 
 type APIKey struct {
 	Key       string
@@ -44,7 +47,11 @@ type Manager struct {
 
 func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string) *Manager {
 	if jwtSecret == "" {
-		jwtSecret = generateDefaultSecret()
+		var err error
+		jwtSecret, err = generateDefaultSecret()
+		if err != nil {
+			jwtSecret = ""
+		}
 	}
 	if jwtTTL == 0 {
 		jwtTTL = 24 * time.Hour
@@ -91,6 +98,12 @@ func (m *Manager) ValidateAPIKey(key string) bool {
 	if !strings.HasPrefix(key, APIKeyPrefix) {
 		return false
 	}
+	if len(key) > 256 {
+		return false
+	}
+	if !apiKeyRegexp.MatchString(key[len(APIKeyPrefix):]) {
+		return false
+	}
 
 	m.mu.RLock()
 	apiKey, exists := m.apiKeys[key]
@@ -100,7 +113,9 @@ func (m *Manager) ValidateAPIKey(key string) bool {
 		return false
 	}
 
+	m.mu.Lock()
 	apiKey.LastUsed = time.Now()
+	m.mu.Unlock()
 	return true
 }
 
@@ -234,12 +249,12 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func generateDefaultSecret() string {
+func generateDefaultSecret() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		panic(fmt.Sprintf("failed to generate JWT secret: %v", err))
+		return "", fmt.Errorf("failed to generate JWT secret: %w", err)
 	}
-	return hex.EncodeToString(raw)
+	return hex.EncodeToString(raw), nil
 }
 
 func respondJSON(w http.ResponseWriter, status int, v interface{}) {

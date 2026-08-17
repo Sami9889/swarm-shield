@@ -63,6 +63,9 @@ func NewReputationScorer(config ConsensusConfig, secretKey []byte) *ReputationSc
 	if config.DecayInterval == 0 {
 		config.DecayInterval = 5 * time.Minute
 	}
+	if config.MaxReputations == 0 {
+		config.MaxReputations = 1000000
+	}
 
 	return &ReputationScorer{
 		config:      config,
@@ -74,6 +77,17 @@ func NewReputationScorer(config ConsensusConfig, secretKey []byte) *ReputationSc
 func (rs *ReputationScorer) Score(ip string, metrics RequestMetrics) float64 {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
+
+	if metrics.RequestRate < 0 {
+		metrics.RequestRate = 0
+	}
+	if metrics.ConnectionDuration < 0 {
+		metrics.ConnectionDuration = 0
+	}
+
+	if len(rs.reputations) >= 1_000_000 {
+		rs.evictOldest()
+	}
 
 	entry, exists := rs.reputations[ip]
 	if !exists {
@@ -208,6 +222,9 @@ func (rs *ReputationScorer) Block(ip string) {
 	if entry, exists := rs.reputations[ip]; exists {
 		entry.Blocked = true
 		entry.BlockCount++
+		if entry.BlockCount < 0 {
+			entry.BlockCount = int(^uint(0) >> 1)
+		}
 		entry.LastUpdated = time.Now()
 	}
 }
@@ -221,6 +238,23 @@ func (rs *ReputationScorer) MarshalEntry(ip string) *ReputationEntry {
 		return &e
 	}
 	return nil
+}
+
+func (rs *ReputationScorer) evictOldest() {
+	if len(rs.reputations) == 0 {
+		return
+	}
+	var oldestIP string
+	var oldestTime time.Time
+	for ip, entry := range rs.reputations {
+		if oldestIP == "" || entry.LastUpdated.Before(oldestTime) {
+			oldestIP = ip
+			oldestTime = entry.LastUpdated
+		}
+	}
+	if oldestIP != "" {
+		delete(rs.reputations, oldestIP)
+	}
 }
 
 func (rs *ReputationScorer) UpdateFromGossip(update ScoreUpdate) {

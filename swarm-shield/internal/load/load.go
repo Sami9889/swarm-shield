@@ -137,10 +137,7 @@ func (m *Monitor) RecordSuccess() {
 		m.failureCount = 0
 	}
 
-	m.activeConnections--
-	if m.activeConnections < 0 {
-		m.activeConnections = 0
-	}
+	m.activeConnections = maxInt32(m.activeConnections-1, 0)
 	m.lastSuccess = time.Now()
 }
 
@@ -162,19 +159,20 @@ func (m *Monitor) RecordFailure() {
 		}
 	}
 
-	m.activeConnections--
-	if m.activeConnections < 0 {
-		m.activeConnections = 0
-	}
+	m.activeConnections = maxInt32(m.activeConnections-1, 0)
 }
 
 func (m *Monitor) ReleaseConnection() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.activeConnections--
-	if m.activeConnections < 0 {
-		m.activeConnections = 0
+	m.activeConnections = maxInt32(m.activeConnections-1, 0)
+}
+
+func maxInt32(a, b int32) int32 {
+	if a > b {
+		return a
 	}
+	return b
 }
 
 func (m *Monitor) State() CircuitState {

@@ -23,15 +23,16 @@ type Challenge struct {
 type Validator struct {
 	mu         sync.RWMutex
 	challenges map[string]*Challenge
+	dedup      map[string]time.Time
 }
 
 func NewValidator() *Validator {
-	v := &Validator{challenges: make(map[string]*Challenge)}
+	v := &Validator{challenges: make(map[string]*Challenge), dedup: make(map[string]time.Time)}
 	go v.cleanupLoop()
 	return v
 }
 
-func (v *Validator) GenerateChallenge(difficulty int, clientIP string) *Challenge {
+func (v *Validator) GenerateChallenge(difficulty int, clientIP string) (*Challenge, error) {
 	if difficulty < 1 {
 		difficulty = 1
 	}
@@ -41,7 +42,7 @@ func (v *Validator) GenerateChallenge(difficulty int, clientIP string) *Challeng
 
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		panic(fmt.Sprintf("failed to generate challenge token: %v", err))
+		return nil, fmt.Errorf("failed to generate challenge token: %w", err)
 	}
 
 	token := hex.EncodeToString(tokenBytes)
@@ -59,13 +60,21 @@ func (v *Validator) GenerateChallenge(difficulty int, clientIP string) *Challeng
 	v.challenges[token] = ch
 	v.mu.Unlock()
 
-	return ch
+	return ch, nil
 }
 
 func (v *Validator) Verify(token, nonce, clientIP string, difficulty int) bool {
 	if difficulty < 1 || difficulty > 6 {
 		return false
 	}
+
+	dedupKey := token + ":" + nonce
+	v.mu.RLock()
+	if _, exists := v.dedup[dedupKey]; exists {
+		v.mu.RUnlock()
+		return false
+	}
+	v.mu.RUnlock()
 
 	v.mu.RLock()
 	challenge, exists := v.challenges[token]
@@ -95,6 +104,11 @@ func (v *Validator) Verify(token, nonce, clientIP string, difficulty int) bool {
 			return false
 		}
 	}
+
+	v.mu.Lock()
+	v.dedup[dedupKey] = time.Now()
+	v.mu.Unlock()
+
 	return true
 }
 
@@ -119,6 +133,11 @@ func (v *Validator) cleanupLoop() {
 		for token, ch := range v.challenges {
 			if now.After(ch.ExpiresAt) {
 				delete(v.challenges, token)
+			}
+		}
+		for key, t := range v.dedup {
+			if now.Sub(t) > 5*time.Minute {
+				delete(v.dedup, key)
 			}
 		}
 		v.mu.Unlock()

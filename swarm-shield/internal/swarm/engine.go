@@ -189,14 +189,24 @@ func generatePeerID() string {
 }
 
 func generateEventID() string {
-	return time.Now().Format("20060102-150405-") + randomString(8)
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		return time.Now().Format("20060102-150405-") + fmt.Sprintf("%08x", time.Now().UnixNano()&0xFFFFFFFF)
+	}
+	return time.Now().Format("20060102-150405-") + hex.EncodeToString(buf)
 }
 
 func randomString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		for i := range b {
+			b[i] = letters[int(time.Now().UnixNano())%len(letters)]
+		}
+		return string(b)
+	}
 	for i := range b {
-		b[i] = letters[int(time.Now().UnixNano())%len(letters)]
+		b[i] = letters[int(b[i])%len(letters)]
 	}
 	return string(b)
 }

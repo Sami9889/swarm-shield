@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -40,6 +41,9 @@ type PeerInfo struct {
 }
 
 func NewGossipProtocol(config ConsensusConfig, secretKey []byte, m *metrics.Metrics) *GossipProtocol {
+	if config.MaxPeers == 0 {
+		config.MaxPeers = 1000
+	}
 	return &GossipProtocol{
 		peers:      make(map[string]*PeerInfo),
 		config:     config,
@@ -60,8 +64,14 @@ func (g *GossipProtocol) Stop() {
 }
 
 func (g *GossipProtocol) AddPeer(id, address string, trustLevel TrustLevel, key []byte) {
+	if len(key) < 32 {
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.config.MaxPeers > 0 && len(g.peers) >= g.config.MaxPeers {
+		return
+	}
 	g.peers[id] = &PeerInfo{
 		ID:         id,
 		Address:    address,
@@ -234,14 +244,23 @@ func (g *GossipProtocol) PropagateUpdate(update ScoreUpdate) {
 }
 
 func (g *GossipProtocol) sendUpdate(p *PeerInfo, update ScoreUpdate) {
-	data, _ := json.Marshal(update)
-	_ = data
+	data, err := json.Marshal(update)
+	if err != nil {
+		return
+	}
+	if len(data) > 8192 {
+		g.RecordFailure(p.ID)
+		return
+	}
 	g.mu.Lock()
 	p.LastSeen = time.Now()
 	g.mu.Unlock()
 }
 
 func (g *GossipProtocol) HandleMessage(data []byte, fromPeer string) error {
+	if len(data) > 8192 {
+		return fmt.Errorf("message too large: %d bytes", len(data))
+	}
 	var update ScoreUpdate
 	if err := json.Unmarshal(data, &update); err != nil {
 		return err

@@ -9,21 +9,33 @@ import (
 )
 
 type Metrics struct {
-	RequestsTotal         prometheus.Counter
-	RequestDuration       prometheus.Histogram
-	ActiveConnections     prometheus.Gauge
-	PoWVerified           prometheus.Counter
-	P2PConnections        prometheus.Gauge
-	RateLimitHits         prometheus.Counter
-	AuthFailures          prometheus.Counter
-	ActivePeers           prometheus.Gauge
-	OriginFetches         prometheus.Counter
-	WebSocketMessages     prometheus.Counter
-	CircuitBreakerState   prometheus.Gauge
-	ServerGoroutines      prometheus.Gauge
-	LoadSheddingRejects   prometheus.Counter
-	ConsensusBlocks       prometheus.Counter
-	ConsensusGossipMessages prometheus.Counter
+	RequestsTotal            prometheus.Counter
+	RequestDuration          prometheus.Histogram
+	ActiveConnections        prometheus.Gauge
+	PoWVerified              prometheus.Counter
+	P2PConnections           prometheus.Gauge
+	RateLimitHits            prometheus.Counter
+	AuthFailures             prometheus.Counter
+	ActivePeers              prometheus.Gauge
+	OriginFetches            prometheus.Counter
+	WebSocketMessages        prometheus.Counter
+	CircuitBreakerState      prometheus.Gauge
+	ServerGoroutines         prometheus.Gauge
+	LoadSheddingRejects      prometheus.Counter
+	ConsensusBlocks          prometheus.Counter
+	ConsensusGossipMessages  prometheus.Counter
+	ConsensusPeerScore       prometheus.Gauge
+	ConsensusDecayedIPs      prometheus.Counter
+	AuthJWTValidationFailures prometheus.Counter
+	ConfigReloads            prometheus.Counter
+	ActivePowChallenges      prometheus.Gauge
+	RequestBodyBytes         prometheus.Histogram
+	ResponseBodyBytes        prometheus.Histogram
+	WebSocketDuration        prometheus.Histogram
+	PowChallengeDuration     prometheus.Histogram
+	BotDetected              prometheus.Counter
+	APIVersionRequests       *prometheus.CounterVec
+	JWTValidationFailures    *prometheus.CounterVec
 }
 
 func NewMetrics() *Metrics {
@@ -105,7 +117,72 @@ func NewMetrics() *Metrics {
 		Help: "Total number of gossip messages exchanged",
 	})
 
+	m.ConsensusPeerScore = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "swarm_shield_consensus_peer_score",
+		Help: "Current consensus peer score",
+	})
+
+	m.ConsensusDecayedIPs = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "swarm_shield_consensus_decayed_ips_total",
+		Help: "Total number of IPs whose reputation score was decayed",
+	})
+
+	m.AuthJWTValidationFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "swarm_shield_auth_jwt_validation_failures_total",
+		Help: "Total number of JWT validation failures",
+	})
+
+	m.ConfigReloads = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "swarm_shield_config_reloads_total",
+		Help: "Total number of configuration reloads",
+	})
+
+	m.ActivePowChallenges = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "swarm_shield_active_pow_challenges",
+		Help: "Current number of active PoW challenges",
+	})
+
+	m.RequestBodyBytes = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "swarm_shield_request_body_bytes",
+		Help:    "HTTP request body size in bytes",
+		Buckets: prometheus.ExponentialBuckets(64, 2, 10),
+	})
+
+	m.ResponseBodyBytes = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "swarm_shield_response_body_bytes",
+		Help:    "HTTP response body size in bytes",
+		Buckets: prometheus.ExponentialBuckets(64, 2, 10),
+	})
+
+	m.WebSocketDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "swarm_shield_websocket_duration_seconds",
+		Help:    "WebSocket connection duration in seconds",
+		Buckets: prometheus.ExponentialBuckets(1, 2, 10),
+	})
+
+	m.PowChallengeDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "swarm_shield_pow_challenge_duration_seconds",
+		Help:    "PoW challenge generation duration in seconds",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	m.BotDetected = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "swarm_shield_bot_detected_total",
+		Help: "Total number of bot-like requests detected",
+	})
+
+	m.APIVersionRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "swarm_shield_api_version_requests_total",
+		Help: "Total requests by API version",
+	}, []string{"version"})
+
+	m.JWTValidationFailures = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "swarm_shield_auth_jwt_validation_failures_total",
+		Help: "Total number of JWT validation failures by reason",
+	}, []string{"reason"})
+
 	return m
+}
 }
 
 func (m *Metrics) Middleware(next http.Handler) http.Handler {
@@ -113,6 +190,10 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 		start := time.Now()
 		m.ActiveConnections.Inc()
 		m.RequestsTotal.Inc()
+
+		if r.ContentLength > 0 {
+			m.RequestBodyBytes.Observe(float64(r.ContentLength))
+		}
 
 		next.ServeHTTP(w, r)
 

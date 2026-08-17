@@ -135,6 +135,12 @@ func (rl *RateLimiter) Reset() {
 	rl.buckets = make(map[string]*tokenBucket)
 }
 
+func (rl *RateLimiter) KeyCount() int {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	return len(rl.buckets)
+}
+
 func (rl *RateLimiter) Stop() {
 	rl.stopOnce.Do(func() {
 		close(rl.stopChan)
@@ -155,10 +161,30 @@ func (rl *RateLimiter) cleanupLoop() {
 					delete(rl.buckets, apiKey)
 				}
 			}
+			if rl.limit > 0 && len(rl.buckets) > rl.limit*10 {
+				rl.evictOldest()
+			}
 			rl.mu.Unlock()
 		case <-rl.stopChan:
 			return
 		}
+	}
+}
+
+func (rl *RateLimiter) evictOldest() {
+	if len(rl.buckets) == 0 {
+		return
+	}
+	var oldestKey string
+	var oldestTime time.Time
+	for apiKey, bucket := range rl.buckets {
+		if oldestKey == "" || bucket.lastTime.Before(oldestTime) {
+			oldestKey = apiKey
+			oldestTime = bucket.lastTime
+		}
+	}
+	if oldestKey != "" {
+		delete(rl.buckets, oldestKey)
 	}
 }
 
@@ -170,6 +196,12 @@ func (rl *RateLimiter) RateLimitMiddleware(next http.Handler) http.Handler {
 			if len(authHeader) > 7 {
 				apiKey = authHeader[7:]
 			}
+		}
+
+		if len(apiKey) > 256 {
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, `{"error": "invalid API key length"}`, http.StatusBadRequest)
+			return
 		}
 
 		if apiKey != "" && !rl.Allow(apiKey) {

@@ -30,6 +30,8 @@ type ServerConfig struct {
 	IdleTimeout     time.Duration
 	MaxRequestSize  int64
 	RequestTimeout  time.Duration
+	TrustedProxies  []string
+	ReadHeaderTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -75,6 +77,8 @@ type RateLimitConfig struct {
 	RequestsPerMinute int
 	BurstSize         int
 	TTL               time.Duration
+	MaxKeys           int
+	KeyPrefix         string
 }
 
 type MetricsConfig struct {
@@ -117,18 +121,22 @@ type ConsensusConfig struct {
 	MinScore            float64
 	PeerTimeout         time.Duration
 	AntiEntropyInterval time.Duration
+	MaxReputations      int
+	MaxPeers            int
 }
 
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Host:            getEnv("HOST", "0.0.0.0"),
-			Port:            getEnv("PORT", "8080"),
-			ReadTimeout:     getDurationEnv("READ_TIMEOUT", 5*time.Second),
-			WriteTimeout:    getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
-			IdleTimeout:     getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
-			MaxRequestSize:  getInt64Env("MAX_REQUEST_SIZE", 1<<20),
-			RequestTimeout:  getDurationEnv("REQUEST_TIMEOUT", 15*time.Second),
+			Host:             getEnv("HOST", "0.0.0.0"),
+			Port:             getEnv("PORT", "8080"),
+			ReadTimeout:      getDurationEnv("READ_TIMEOUT", 5*time.Second),
+			WriteTimeout:     getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
+			IdleTimeout:      getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
+			MaxRequestSize:   getInt64Env("MAX_REQUEST_SIZE", 1<<20),
+			RequestTimeout:   getDurationEnv("REQUEST_TIMEOUT", 15*time.Second),
+			TrustedProxies:   getStringSliceEnv("TRUSTED_PROXIES", []string{"127.0.0.1", "::1"}),
+			ReadHeaderTimeout: getDurationEnv("READ_HEADER_TIMEOUT", 2*time.Second),
 		},
 		Auth: AuthConfig{
 			JWTSecret:       os.Getenv("JWT_SECRET"),
@@ -166,6 +174,8 @@ func Load() *Config {
 			RequestsPerMinute: getIntEnv("RATE_LIMIT_RPM", 120),
 			BurstSize:         getIntEnv("RATE_LIMIT_BURST", 20),
 			TTL:               getDurationEnv("RATE_LIMIT_TTL", 1*time.Minute),
+			MaxKeys:           getIntEnv("RATE_LIMIT_MAX_KEYS", 100000),
+			KeyPrefix:         getEnv("RATE_LIMIT_KEY_PREFIX", ""),
 		},
 		Metrics: MetricsConfig{
 			Enabled:  getBoolEnv("METRICS_ENABLED", true),
@@ -203,6 +213,8 @@ func Load() *Config {
 			MinScore:            getFloat64Env("CONSENSUS_MIN_SCORE", 0.0),
 			PeerTimeout:         getDurationEnv("CONSENSUS_PEER_TIMEOUT", 30*time.Second),
 			AntiEntropyInterval: getDurationEnv("CONSENSUS_ANTI_ENTROPY_INTERVAL", 30*time.Second),
+			MaxReputations:      getIntEnv("CONSENSUS_MAX_REPUTATIONS", 1000000),
+			MaxPeers:            getIntEnv("CONSENSUS_MAX_PEERS", 1000),
 		},
 	}
 }
