@@ -24,12 +24,24 @@ type Validator struct {
 	mu         sync.RWMutex
 	challenges map[string]*Challenge
 	dedup      map[string]time.Time
+	stopChan   chan struct{}
+	stopOnce   sync.Once
 }
 
 func NewValidator() *Validator {
-	v := &Validator{challenges: make(map[string]*Challenge), dedup: make(map[string]time.Time)}
+	v := &Validator{
+		challenges: make(map[string]*Challenge),
+		dedup:      make(map[string]time.Time),
+		stopChan:   make(chan struct{}),
+	}
 	go v.cleanupLoop()
 	return v
+}
+
+func (v *Validator) Stop() {
+	v.stopOnce.Do(func() {
+		close(v.stopChan)
+	})
 }
 
 func (v *Validator) GenerateChallenge(difficulty int, clientIP string) (*Challenge, error) {
@@ -127,20 +139,25 @@ func (v *Validator) cleanupLoop() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-		v.mu.Lock()
-		for token, ch := range v.challenges {
-			if now.After(ch.ExpiresAt) {
-				delete(v.challenges, token)
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			v.mu.Lock()
+			for token, ch := range v.challenges {
+				if now.After(ch.ExpiresAt) {
+					delete(v.challenges, token)
+				}
 			}
-		}
-		for key, t := range v.dedup {
-			if now.Sub(t) > 5*time.Minute {
-				delete(v.dedup, key)
+			for key, t := range v.dedup {
+				if now.Sub(t) > 5*time.Minute {
+					delete(v.dedup, key)
+				}
 			}
+			v.mu.Unlock()
+		case <-v.stopChan:
+			return
 		}
-		v.mu.Unlock()
 	}
 }
 
@@ -151,6 +168,8 @@ type DifficultyCalculator struct {
 	windowSize  time.Duration
 	lastTick    time.Time
 	loadMonitor *load.Monitor
+	stopChan    chan struct{}
+	stopOnce    sync.Once
 }
 
 func NewDifficultyCalculator() *DifficultyCalculator {
@@ -159,6 +178,7 @@ func NewDifficultyCalculator() *DifficultyCalculator {
 		bucketSize:  1 * time.Second,
 		windowSize:  5 * time.Second,
 		lastTick:   time.Now(),
+		stopChan:    make(chan struct{}),
 	}
 	go dc.tickerLoop()
 	return dc
@@ -171,9 +191,16 @@ func NewDifficultyCalculatorWithLoad(monitor *load.Monitor) *DifficultyCalculato
 		windowSize:  5 * time.Second,
 		lastTick:   time.Now(),
 		loadMonitor: monitor,
+		stopChan:    make(chan struct{}),
 	}
 	go dc.tickerLoop()
 	return dc
+}
+
+func (dc *DifficultyCalculator) Stop() {
+	dc.stopOnce.Do(func() {
+		close(dc.stopChan)
+	})
 }
 
 func (dc *DifficultyCalculator) RecordRequest() {
@@ -242,22 +269,27 @@ func (dc *DifficultyCalculator) tickerLoop() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-		dc.mu.Lock()
-		cutoff := now.Add(-dc.windowSize * 2)
-		var keep []uint64
-		for i := range dc.rpsBuckets {
-			bucketTime := dc.lastTick.Add(time.Duration(len(dc.rpsBuckets)-1-i) * dc.bucketSize * -1)
-			if bucketTime.After(cutoff) {
-				keep = append(keep, dc.rpsBuckets[i])
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			dc.mu.Lock()
+			cutoff := now.Add(-dc.windowSize * 2)
+			var keep []uint64
+			for i := range dc.rpsBuckets {
+				bucketTime := dc.lastTick.Add(time.Duration(len(dc.rpsBuckets)-1-i) * dc.bucketSize * -1)
+				if bucketTime.After(cutoff) {
+					keep = append(keep, dc.rpsBuckets[i])
+				}
 			}
+			dc.rpsBuckets = keep
+			if len(dc.rpsBuckets) > 0 {
+				dc.lastTick = now
+			}
+			dc.mu.Unlock()
+		case <-dc.stopChan:
+			return
 		}
-		dc.rpsBuckets = keep
-		if len(dc.rpsBuckets) > 0 {
-			dc.lastTick = now
-		}
-		dc.mu.Unlock()
 	}
 }
 

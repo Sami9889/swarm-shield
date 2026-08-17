@@ -31,6 +31,8 @@ type Monitor struct {
 	activeConnections    int32
 	goroutineLimit       int
 	goroutineWarn        int
+	stopChan             chan struct{}
+	stopOnce             sync.Once
 }
 
 type Config struct {
@@ -86,9 +88,16 @@ func NewMonitor(cfg Config) *Monitor {
 		maxActiveConnections: cfg.MaxActiveConnections,
 		goroutineLimit:       cfg.GoroutineLimit,
 		goroutineWarn:        cfg.GoroutineWarn,
+		stopChan:             make(chan struct{}),
 	}
 	go m.monitorLoop()
 	return m
+}
+
+func (m *Monitor) Stop() {
+	m.stopOnce.Do(func() {
+		close(m.stopChan)
+	})
 }
 
 func (m *Monitor) AllowRequest() bool {
@@ -241,18 +250,23 @@ func (m *Monitor) monitorLoop() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		goroutines := runtime.NumGoroutine()
-		if goroutines >= m.goroutineWarn && goroutines < m.goroutineLimit {
-			m.mu.Lock()
-			if m.state == CircuitClosed {
-				m.failureCount++
-				if m.failureCount >= m.failureThreshold {
-					m.state = CircuitOpen
-					m.openedAt = time.Now()
+	for {
+		select {
+		case <-ticker.C:
+			goroutines := runtime.NumGoroutine()
+			if goroutines >= m.goroutineWarn && goroutines < m.goroutineLimit {
+				m.mu.Lock()
+				if m.state == CircuitClosed {
+					m.failureCount++
+					if m.failureCount >= m.failureThreshold {
+						m.state = CircuitOpen
+						m.openedAt = time.Now()
+					}
 				}
+				m.mu.Unlock()
 			}
-			m.mu.Unlock()
+		case <-m.stopChan:
+			return
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"swarm-shield/internal/audit"
+	"swarm-shield/internal/auth"
 	"swarm-shield/internal/config"
 	"swarm-shield/internal/load"
 	"swarm-shield/internal/metrics"
@@ -17,6 +18,15 @@ import (
 )
 
 func TestExtractClientIP(t *testing.T) {
+	originalCfg := cfg
+	defer func() { cfg = originalCfg }()
+
+	cfg = &config.Config{
+		Server: config.ServerConfig{
+			TrustedProxies: []string{"10.0.0.0/8", "127.0.0.1"},
+		},
+	}
+
 	tests := []struct {
 		name     string
 		header   string
@@ -63,7 +73,8 @@ func TestHealthEndpoints(t *testing.T) {
 	)
 	defer rateLimiter.Stop()
 
-	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter, loadMonitor, nil)
+	testAuthManager := auth.NewManager(cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry, cfg.Auth.Issuer, cfg.Auth.Audience)
+	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter, loadMonitor, nil, testAuthManager)
 
 	tests := []struct {
 		name       string

@@ -280,12 +280,16 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 			if l.Peek() == '&' {
 				l.Next()
 				tokens = append(tokens, Token{Type: TokenAnd, Literal: "&&", Line: startLine, Column: startCol})
+			} else {
+				tokens = append(tokens, Token{Type: TokenAnd, Literal: "&", Line: startLine, Column: startCol})
 			}
 		case '|':
 			l.Next()
 			if l.Peek() == '|' {
 				l.Next()
 				tokens = append(tokens, Token{Type: TokenOr, Literal: "||", Line: startLine, Column: startCol})
+			} else {
+				tokens = append(tokens, Token{Type: TokenOr, Literal: "|", Line: startLine, Column: startCol})
 			}
 		case '"', '\'':
 			str, err := l.ReadString(ch)

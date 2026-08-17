@@ -76,7 +76,7 @@ func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string)
 func (m *Manager) GenerateAPIKey(name string) string {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		panic(fmt.Sprintf("failed to generate API key: %v", err))
+		return ""
 	}
 
 	rawSum := sha256.Sum256(raw)
@@ -105,15 +105,12 @@ func (m *Manager) ValidateAPIKey(key string) bool {
 		return false
 	}
 
-	m.mu.RLock()
+	m.mu.Lock()
 	apiKey, exists := m.apiKeys[key]
-	m.mu.RUnlock()
-
 	if !exists || !apiKey.Active {
+		m.mu.Unlock()
 		return false
 	}
-
-	m.mu.Lock()
 	apiKey.LastUsed = time.Now()
 	m.mu.Unlock()
 	return true

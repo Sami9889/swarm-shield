@@ -91,7 +91,7 @@ type APIServer struct {
 	server *http.Server
 }
 
-func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter, loadMonitor *load.Monitor, consensusEngine *swarm.ConsensusEngine) *APIServer {
+func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter, loadMonitor *load.Monitor, consensusEngine *swarm.ConsensusEngine, authManager *auth.Manager) *APIServer {
 	mux := http.NewServeMux()
 
 	s := &APIServer{
@@ -148,8 +148,10 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 
 func loadAwareHandler(metrics *metrics.Metrics, monitor *load.Monitor, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !monitor.AllowRequest() {
-			metrics.LoadSheddingRejects.Inc()
+		if monitor == nil || !monitor.AllowRequest() {
+			if metrics != nil {
+				metrics.LoadSheddingRejects.Inc()
+			}
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(map[string]string{
@@ -162,7 +164,7 @@ func loadAwareHandler(metrics *metrics.Metrics, monitor *load.Monitor, next http
 
 		next.ServeHTTP(w, r)
 
-		if r.URL.Path == "/api/data" {
+		if r.URL.Path == "/api/data" && monitor != nil {
 			monitor.RecordSuccess()
 		}
 	})
@@ -170,7 +172,16 @@ func loadAwareHandler(metrics *metrics.Metrics, monitor *load.Monitor, next http
 
 func consensusAwareHandler(engine *swarm.ConsensusEngine, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if engine != nil && engine.CheckConsensus(extractClientIP(r)) {
+		if engine == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		clientIP := extractClientIP(r)
+		if clientIP == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if engine.CheckConsensus(clientIP) {
 			respondError(w, http.StatusForbidden, "consensus blocked")
 			return
 		}
@@ -189,6 +200,15 @@ func (s *APIServer) Shutdown(ctx context.Context) error {
 	if consensusEngine != nil {
 		consensusEngine.Stop()
 	}
+	if loadMonitor != nil {
+		loadMonitor.Stop()
+	}
+	if validator != nil {
+		validator.Stop()
+	}
+	if difficultyCalc != nil {
+		difficultyCalc.Stop()
+	}
 	return s.server.Shutdown(ctx)
 }
 
@@ -199,6 +219,9 @@ func extractClientIP(r *http.Request) string {
 	}
 
 	if !isTrustedProxy(remoteIP) {
+		if net.ParseIP(remoteIP) == nil {
+			return ""
+		}
 		return remoteIP
 	}
 
@@ -355,10 +378,16 @@ func (s *APIServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "peer ID too long")
 		return
 	}
+
+	if req.PeerID == "" {
 		req.PeerID = generateID()
 	}
 
 	peer := signalingStore.RegisterPeer(req.PeerID)
+	if peer == nil {
+		respondError(w, http.StatusServiceUnavailable, "max peers reached")
+		return
+	}
 	peers := signalingStore.GetRandomPeers(5, peer.ID)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -419,6 +448,9 @@ func (s *APIServer) handlePeers(w http.ResponseWriter, r *http.Request) {
 	peers := signalingStore.MarshalPeers()
 	if len(peers) > 500 {
 		peers = peers[:500]
+	}
+	if peers == nil {
+		peers = []map[string]interface{}{}
 	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"peers": peers,
@@ -584,6 +616,7 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		"currentRPS":       difficultyCalc.GetCurrentRPS(),
 		"currentDifficulty": difficultyCalc.CalculateDifficulty(),
 		"peerCount":        signalingStore.PeerCount(),
+		"rateLimiterKeys":  rateLimiter.KeyCount(),
 	}
 
 	if loadMonitor != nil {
@@ -668,7 +701,8 @@ func (s *APIServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	peer := signalingStore.RegisterPeer(peerID)
 	if peer == nil {
-		respondError(w, http.StatusServiceUnavailable, "max peers reached")
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseServiceRestart, "max peers reached"))
+		conn.Close()
 		return
 	}
 	logger.Info("websocket connected", zap.String("peerId", peerID), zap.String("remote", r.RemoteAddr))
@@ -809,7 +843,7 @@ func main() {
 		}
 	}
 
-	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter, loadMonitor, consensusEngine)
+	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter, loadMonitor, consensusEngine, authManager)
 
 	auditLogger.Log(nil, &audit.Event{
 		ID:     generateID(),
@@ -847,9 +881,9 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	<-quit
+	sig := <-quit
 
-	if sig := <-quit; sig == syscall.SIGHUP {
+	if sig == syscall.SIGHUP {
 		logger.Info("reloading configuration...")
 		newCfg := config.Load()
 		cfg = newCfg
