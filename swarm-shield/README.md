@@ -6,7 +6,7 @@ Production-grade WebRTC P2P swarm mesh with adaptive PoW DDoS protection.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/swarm-shield.git
+git clone https://github.com/sami9889/swarm-shield.git
 cd swarm-shield
 
 # Run the installer
