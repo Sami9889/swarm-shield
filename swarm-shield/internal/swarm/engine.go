@@ -35,6 +35,8 @@ func NewConsensusEngine(config ConsensusConfig, secretKey []byte, m *metrics.Met
 		return nil
 	}
 
+	config.Normalize()
+
 	peerID := generatePeerID()
 	scorer := NewReputationScorer(config, secretKey)
 	gossip := NewGossipProtocol(config, secretKey, m)
@@ -115,22 +117,22 @@ func (c *ConsensusEngine) RecordObservation(ip string, rm RequestMetrics) {
 	}
 }
 
-func (c *ConsensusEngine) CheckConsensus(ip string) bool {
+func (c *ConsensusEngine) CheckConsensus(ip string) (bool, string) {
 	if c == nil {
-		return false
+		return false, ""
 	}
 
 	if c.scorer.IsBlocked(ip) {
-		return true
+		return true, "blocked"
 	}
 
 	if c.rateLimiter != nil {
 		if !c.rateLimiter.Allow("consensus:" + ip) {
-			return true
+			return true, "rate_limited"
 		}
 	}
 
-	return false
+	return false, ""
 }
 
 func (c *ConsensusEngine) GetScore(ip string) float64 {
@@ -162,7 +164,9 @@ func (c *ConsensusEngine) HandleGossipMessage(data []byte) error {
 	if err := json.Unmarshal(data, &update); err != nil {
 		return err
 	}
-	c.scorer.UpdateFromGossip(update)
+	if err := c.scorer.UpdateFromGossip(update); err != nil {
+		return err
+	}
 	c.gossip.RecordSuccess(update.PeerID)
 	return nil
 }
@@ -173,10 +177,10 @@ func (c *ConsensusEngine) Stats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"peerId":    c.peerID,
-		"peerCount": c.gossip.PeerCount(),
-		"enabled":   c.config.Enabled,
-		"threshold": c.config.Threshold,
+		"peerId":            c.peerID,
+		"consensusPeerCount": c.gossip.PeerCount(),
+		"enabled":           c.config.Enabled,
+		"threshold":         c.config.Threshold,
 	}
 }
 

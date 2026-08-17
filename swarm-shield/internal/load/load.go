@@ -41,6 +41,7 @@ type Config struct {
 	Cooldown             time.Duration
 	RequestTimeout       time.Duration
 	MaxActiveConnections int
+	HalfOpenMaxRequests  int
 	GoroutineLimit       int
 	GoroutineWarn        int
 }
@@ -52,6 +53,7 @@ func DefaultConfig() Config {
 		Cooldown:             5 * time.Second,
 		RequestTimeout:       500 * time.Millisecond,
 		MaxActiveConnections: 10000,
+		HalfOpenMaxRequests:  10,
 		GoroutineLimit:       50000,
 		GoroutineWarn:        20000,
 	}
@@ -73,6 +75,9 @@ func NewMonitor(cfg Config) *Monitor {
 	if cfg.MaxActiveConnections <= 0 {
 		cfg.MaxActiveConnections = DefaultConfig().MaxActiveConnections
 	}
+	if cfg.HalfOpenMaxRequests <= 0 {
+		cfg.HalfOpenMaxRequests = DefaultConfig().HalfOpenMaxRequests
+	}
 	if cfg.GoroutineLimit <= 0 {
 		cfg.GoroutineLimit = DefaultConfig().GoroutineLimit
 	}
@@ -86,6 +91,7 @@ func NewMonitor(cfg Config) *Monitor {
 		cooldown:             cfg.Cooldown,
 		requestTimeout:       cfg.RequestTimeout,
 		maxActiveConnections: cfg.MaxActiveConnections,
+		halfOpenMaxRequests:  cfg.HalfOpenMaxRequests,
 		goroutineLimit:       cfg.GoroutineLimit,
 		goroutineWarn:        cfg.GoroutineWarn,
 		stopChan:             make(chan struct{}),
@@ -117,7 +123,7 @@ func (m *Monitor) AllowRequest() bool {
 	}
 
 	if m.state == CircuitHalfOpen {
-		if m.halfOpenRequests >= m.maxActiveConnections {
+		if m.halfOpenRequests >= m.halfOpenMaxRequests {
 			return false
 		}
 		m.halfOpenRequests++
@@ -218,7 +224,11 @@ func (m *Monitor) IsOverloaded() bool {
 	return false
 }
 
-func (m *Monitor) Stats() map[string]interface{} {
+func (m *Monitor) MaxActiveConnections() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.maxActiveConnections
+}
 	m.mu.RLock()
 	state := m.state
 	active := m.activeConnections

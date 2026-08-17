@@ -45,12 +45,12 @@ type Manager struct {
 	audience   string
 }
 
-func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string) *Manager {
+func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string) (*Manager, error) {
 	if jwtSecret == "" {
 		var err error
 		jwtSecret, err = generateDefaultSecret()
 		if err != nil {
-			jwtSecret = ""
+			return nil, fmt.Errorf("failed to generate JWT secret: %w", err)
 		}
 	}
 	if jwtTTL == 0 {
@@ -70,7 +70,7 @@ func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string)
 		issuer:    issuer,
 		audience:  audience,
 	}
-	return m
+	return m, nil
 }
 
 func (m *Manager) GenerateAPIKey(name string) string {

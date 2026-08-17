@@ -64,6 +64,7 @@ func TestMonitor_RecordSuccess(t *testing.T) {
 	m := NewMonitor(DefaultConfig())
 	m.failureThreshold = 1
 	m.successThreshold = 2
+	m.cooldown = 0
 
 	m.AllowRequest()
 	m.RecordFailure()

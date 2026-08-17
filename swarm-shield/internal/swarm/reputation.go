@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -32,6 +33,7 @@ type ReputationEntry struct {
 	ConnectionScore float64
 	BehavioralHash  string
 	LastUpdated     time.Time
+	LastDecay       time.Time
 	Blocked         bool
 	BlockCount      int
 }
@@ -95,6 +97,7 @@ func (rs *ReputationScorer) Score(ip string, metrics RequestMetrics) float64 {
 			IP:         ip,
 			Score:      rs.config.MaxScore,
 			LastUpdated: time.Now(),
+			LastDecay:  time.Now(),
 		}
 		rs.reputations[ip] = entry
 	}
@@ -104,7 +107,15 @@ func (rs *ReputationScorer) Score(ip string, metrics RequestMetrics) float64 {
 	entry.ConnectionScore = rs.scoreConnectionBehavior(metrics)
 	entry.BehavioralHash = rs.computeBehavioralHash(metrics)
 
-	entry.Score = entry.RequestPattern*0.4 + entry.PoWCompliance*0.35 + entry.ConnectionScore*0.25
+	newScore := entry.RequestPattern*0.4 + entry.PoWCompliance*0.35 + entry.ConnectionScore*0.25
+	if newScore > rs.config.MaxScore {
+		newScore = rs.config.MaxScore
+	}
+	if newScore < rs.config.MinScore {
+		newScore = rs.config.MinScore
+	}
+
+	entry.Score = entry.Score*0.7 + newScore*0.3
 	if entry.Score > rs.config.MaxScore {
 		entry.Score = rs.config.MaxScore
 	}
@@ -132,7 +143,7 @@ func (rs *ReputationScorer) scoreRequestPattern(metrics RequestMetrics) float64 
 
 func (rs *ReputationScorer) scorePoWCompliance(metrics RequestMetrics) float64 {
 	if !metrics.PoWVerified {
-		return 0.0
+		return 0.5
 	}
 	return 1.0
 }
@@ -142,7 +153,7 @@ func (rs *ReputationScorer) scoreConnectionBehavior(metrics RequestMetrics) floa
 		return 0.5
 	}
 	if metrics.ConnectionDuration < 100*time.Millisecond {
-		return 0.0
+		return 0.5
 	}
 	if metrics.ConnectionDuration > 5*time.Minute {
 		return 1.0
@@ -167,7 +178,7 @@ func (rs *ReputationScorer) Decay() {
 
 	now := time.Now()
 	for ip, entry := range rs.reputations {
-		if now.Sub(entry.LastUpdated) > rs.config.DecayInterval {
+		if now.Sub(entry.LastDecay) > rs.config.DecayInterval {
 			entry.Score = entry.Score*rs.config.DecayRate + rs.config.MaxScore*(1-rs.config.DecayRate)
 			if entry.Score > rs.config.MaxScore {
 				entry.Score = rs.config.MaxScore
@@ -175,7 +186,7 @@ func (rs *ReputationScorer) Decay() {
 			if entry.Score < rs.config.MinScore {
 				entry.Score = rs.config.MinScore
 			}
-			entry.LastUpdated = now
+			entry.LastDecay = now
 			if entry.Blocked && entry.Score > rs.config.Threshold {
 				entry.Blocked = false
 			}
@@ -257,12 +268,17 @@ func (rs *ReputationScorer) evictOldest() {
 	}
 }
 
-func (rs *ReputationScorer) UpdateFromGossip(update ScoreUpdate) {
+func (rs *ReputationScorer) UpdateFromGossip(update ScoreUpdate) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	if !rs.verifySignature(update) {
-		return
+	if err := rs.verifySignature(update); err != nil {
+		return err
+	}
+
+	now := time.Now()
+	if update.Timestamp.After(now.Add(5*time.Minute)) || update.Timestamp.Before(now.Add(-5*time.Minute)) {
+		return fmt.Errorf("timestamp outside clock skew window")
 	}
 
 	entry, exists := rs.reputations[update.IP]
@@ -270,7 +286,8 @@ func (rs *ReputationScorer) UpdateFromGossip(update ScoreUpdate) {
 		entry = &ReputationEntry{
 			IP:         update.IP,
 			Score:      rs.config.MaxScore,
-			LastUpdated: time.Now(),
+			LastUpdated: now,
+			LastDecay:  now,
 		}
 		rs.reputations[update.IP] = entry
 	}
@@ -290,17 +307,16 @@ func (rs *ReputationScorer) UpdateFromGossip(update ScoreUpdate) {
 	if entry.Score < rs.config.MinScore {
 		entry.Score = rs.config.MinScore
 	}
-	entry.LastUpdated = time.Now()
-	if update.Timestamp.After(entry.LastUpdated) {
-		entry.LastUpdated = update.Timestamp
-	}
+	entry.LastUpdated = now
+	entry.LastDecay = now
+	return nil
 }
 
-func (rs *ReputationScorer) verifySignature(update ScoreUpdate) bool {
+func (rs *ReputationScorer) verifySignature(update ScoreUpdate) error {
 	if len(update.Signature) == 0 {
-		return false
+		return fmt.Errorf("missing signature")
 	}
-	data, _ := json.Marshal(struct {
+	data, err := json.Marshal(struct {
 		IP    string    `json:"ip"`
 		Score float64   `json:"score"`
 		TS    time.Time `json:"ts"`
@@ -311,8 +327,14 @@ func (rs *ReputationScorer) verifySignature(update ScoreUpdate) bool {
 		TS:    update.Timestamp,
 		Peer:  update.PeerID,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
 	mac := hmac.New(sha256.New, rs.secretKey)
 	mac.Write(data)
 	expected := mac.Sum(nil)
-	return hmac.Equal(expected, update.Signature)
+	if !hmac.Equal(expected, update.Signature) {
+		return fmt.Errorf("signature mismatch")
+	}
+	return nil
 }

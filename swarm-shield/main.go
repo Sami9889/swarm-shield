@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -55,6 +56,10 @@ var (
 	difficultyCalc = pow.NewDifficultyCalculator()
 	signalingStore = signaling.NewSignalingStore(5 * time.Minute)
 	authManager    *auth.Manager
+	banList        = struct {
+		mu     sync.Mutex
+		peers  map[string]time.Time
+	}{peers: make(map[string]time.Time)}
 
 	totalRequests   uint64
 	activePoWProofs uint64
@@ -114,7 +119,11 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	loginHandler := http.HandlerFunc(s.handleLogin)
 	keysHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
 	adminHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleAdmin))
-	dataHandler := authManager.AuthMiddleware(rateLimiter.RateLimitMiddleware(loadAwareHandler(metricTracker, loadMonitor, consensusAwareHandler(consensusEngine, http.HandlerFunc(s.handleData)))))
+	dataInner := consensusAwareHandler(consensusEngine, http.HandlerFunc(s.handleData))
+	if cfg.Load.Enabled {
+		dataInner = loadAwareHandler(metricTracker, loadMonitor, dataInner)
+	}
+	dataHandler := authManager.AuthMiddleware(rateLimiter.RateLimitMiddleware(dataInner))
 	statsHandler := http.HandlerFunc(s.handleStats)
 	wsHandler := http.HandlerFunc(s.handleWebSocket)
 	healthHandler := http.HandlerFunc(s.handleHealth)
@@ -135,7 +144,7 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	mux.Handle("/api/peers", requestID(apiVersion(botDetection(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(peersHandler)))))))))
 	mux.Handle("/api/auth/login", requestID(apiVersion(botDetection(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(loginHandler)))))))))
 	mux.Handle("/api/auth/keys", requestID(apiVersion(botDetection(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(keysHandler)))))))))
-	mux.Handle("/api/admin", requestID(apiVersion(botDetection(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(adminHandler)))))))))
+	mux.Handle("/api/admin/", requestID(apiVersion(botDetection(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(adminHandler)))))))))
 	mux.Handle("/api/data", requestID(apiVersion(botDetection(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(dataHandler)))))))))
 	mux.Handle("/api/stats", requestID(apiVersion(botDetection(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(statsHandler)))))))))
 	mux.Handle("/ws", requestID(secureHeaders(cors(requestSizeLimit(timeout(metricTracker.Middleware(recovery(wsHandler))))))))
@@ -181,8 +190,14 @@ func consensusAwareHandler(engine *swarm.ConsensusEngine, next http.Handler) htt
 			next.ServeHTTP(w, r)
 			return
 		}
-		if engine.CheckConsensus(clientIP) {
-			respondError(w, http.StatusForbidden, "consensus blocked")
+		blocked, reason := engine.CheckConsensus(clientIP)
+		if blocked {
+			if reason == "rate_limited" {
+				w.Header().Set("Retry-After", "60")
+				respondError(w, http.StatusTooManyRequests, "consensus rate limited")
+			} else {
+				respondError(w, http.StatusForbidden, "consensus blocked")
+			}
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -210,6 +225,13 @@ func (s *APIServer) Shutdown(ctx context.Context) error {
 		difficultyCalc.Stop()
 	}
 	return s.server.Shutdown(ctx)
+}
+
+func isBanned(peerID string) bool {
+	banList.mu.Lock()
+	defer banList.mu.Unlock()
+	_, banned := banList.peers[peerID]
+	return banned
 }
 
 func extractClientIP(r *http.Request) string {
@@ -383,6 +405,11 @@ func (s *APIServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		req.PeerID = generateID()
 	}
 
+	if isBanned(req.PeerID) {
+		respondError(w, http.StatusForbidden, "peer is banned")
+		return
+	}
+
 	peer := signalingStore.RegisterPeer(req.PeerID)
 	if peer == nil {
 		respondError(w, http.StatusServiceUnavailable, "max peers reached")
@@ -530,15 +557,17 @@ func (s *APIServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		signalingStore.RemovePeer(req.PeerID)
-		if consensusEngine != nil {
-			consensusEngine.Recover(req.PeerID)
-		}
+		banList.mu.Lock()
+		banList.peers[req.PeerID] = time.Now()
+		banList.mu.Unlock()
 		respondJSON(w, http.StatusOK, map[string]string{"status": "peer banned"})
 	case "/api/admin/config/reload":
 		if r.Method != http.MethodPost {
 			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		newCfg := config.Load()
+		cfg = newCfg
 		metricTracker.ConfigReloads.Inc()
 		respondJSON(w, http.StatusOK, map[string]string{"status": "config reloaded"})
 	case "/api/admin/drain":
@@ -675,6 +704,11 @@ func (s *APIServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isBanned(peerID) {
+		respondError(w, http.StatusForbidden, "peer is banned")
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Warn("websocket upgrade failed", zap.Error(err), zap.String("remote", r.RemoteAddr))
@@ -794,9 +828,21 @@ func main() {
 
 	metricTracker = metrics.NewMetrics()
 
-	loadMonitor = load.NewMonitor(load.DefaultConfig())
+	loadMonitor = load.NewMonitor(load.Config{
+		FailureThreshold:     cfg.Load.FailureThreshold,
+		SuccessThreshold:     cfg.Load.SuccessThreshold,
+		Cooldown:             cfg.Load.Cooldown,
+		RequestTimeout:       cfg.Load.RequestTimeout,
+		MaxActiveConnections: cfg.Load.MaxActiveConnections,
+		HalfOpenMaxRequests:  10,
+		GoroutineLimit:       cfg.Load.GoroutineLimit,
+		GoroutineWarn:        cfg.Load.GoroutineWarn,
+	})
 
-	authManager = auth.NewManager(cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry, cfg.Auth.Issuer, cfg.Auth.Audience)
+	authManager, err = auth.NewManager(cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry, cfg.Auth.Issuer, cfg.Auth.Audience)
+	if err != nil {
+		logger.Fatal("failed to initialize auth manager", zap.Error(err))
+	}
 
 	difficultyCalc = pow.NewDifficultyCalculatorWithLoad(loadMonitor)
 

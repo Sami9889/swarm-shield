@@ -1,8 +1,11 @@
 package pow
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"swarm-shield/internal/load"
 )
 
 func TestValidator_GenerateChallenge(t *testing.T) {
@@ -25,12 +28,29 @@ func TestValidator_GenerateChallenge(t *testing.T) {
 	}
 }
 
+func mineNonce(v *pow.Validator, token, clientIP string, difficulty int) string {
+	for nonce := uint64(0); nonce < 1000000; nonce++ {
+		n := fmt.Sprintf("%x", nonce)
+		if v.Verify(token, n, clientIP, difficulty) {
+			return n
+		}
+	}
+	return ""
+}
+
 func TestValidator_Verify(t *testing.T) {
-	v := NewValidator()
+	v := pow.NewValidator()
 	challenge, err := v.GenerateChallenge(2, "198.51.100.1")
 	if err != nil {
 		t.Fatalf("GenerateChallenge() error = %v", err)
 	}
+
+	validNonce := mineNonce(v, challenge.Token, "198.51.100.1", 2)
+	if validNonce == "" {
+		t.Fatal("failed to mine valid nonce")
+	}
+
+	invalidNonce := "invalid_nonce"
 
 	tests := []struct {
 		name     string
@@ -40,10 +60,10 @@ func TestValidator_Verify(t *testing.T) {
 		difficulty int
 		want     bool
 	}{
-		{"valid", challenge.Token, "abc123def456", "198.51.100.1", 2, true},
-		{"wrong_difficulty", challenge.Token, "abc123def456", "198.51.100.1", 3, false},
-		{"wrong_ip", challenge.Token, "abc123def456", "198.51.100.2", 2, false},
-		{"invalid_token", "invalid", "abc123def456", "198.51.100.1", 2, false},
+		{"valid", challenge.Token, validNonce, "198.51.100.1", 2, true},
+		{"wrong_difficulty", challenge.Token, invalidNonce, "198.51.100.1", 3, false},
+		{"wrong_ip", challenge.Token, invalidNonce, "198.51.100.2", 2, false},
+		{"invalid_token", "invalid", validNonce, "198.51.100.1", 2, false},
 		{"empty_nonce", challenge.Token, "", "198.51.100.1", 2, false},
 	}
 
@@ -90,8 +110,6 @@ func TestValidator_ExpiredChallenge(t *testing.T) {
 }
 
 func TestDifficultyCalculator_CalculateDifficulty(t *testing.T) {
-	dc := NewDifficultyCalculator()
-
 	tests := []struct {
 		name   string
 		rps    float64
@@ -106,6 +124,17 @@ func TestDifficultyCalculator_CalculateDifficulty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var dc *pow.DifficultyCalculator
+			if tt.overloaded {
+				m := load.NewMonitor(load.DefaultConfig())
+				m.mu.Lock()
+				m.state = load.CircuitOpen
+				m.mu.Unlock()
+				dc = pow.NewDifficultyCalculatorWithLoad(m)
+			} else {
+				dc = pow.NewDifficultyCalculator()
+			}
+
 			for i := 0; i < int(tt.rps); i++ {
 				dc.RecordRequest()
 			}

@@ -62,7 +62,12 @@ func (rl *RateLimiter) effectiveLimit() int {
 		return rl.limit
 	}
 
-	overloadFactor := float64(rl.loadMonitor.ActiveConnections()) / float64(10000)
+	maxConns := float64(rl.loadMonitor.MaxActiveConnections())
+	if maxConns <= 0 {
+		maxConns = 10000
+	}
+
+	overloadFactor := float64(rl.loadMonitor.ActiveConnections()) / maxConns
 	if overloadFactor > 1.0 {
 		overloadFactor = 1.0
 	}
