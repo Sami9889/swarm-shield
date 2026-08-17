@@ -6,17 +6,20 @@ import (
 	"time"
 
 	"swarm-shield/internal/audit"
+	"swarm-shield/internal/load"
 )
 
 type RateLimiter struct {
-	mu       sync.RWMutex
-	buckets  map[string]*tokenBucket
-	limit    int
-	burst    int
-	ttl      time.Duration
-	audit    *audit.Logger
-	stopChan chan struct{}
-	stopOnce sync.Once
+	mu           sync.RWMutex
+	buckets      map[string]*tokenBucket
+	limit        int
+	burst        int
+	ttl          time.Duration
+	audit        *audit.Logger
+	stopChan     chan struct{}
+	stopOnce     sync.Once
+	loadMonitor  *load.Monitor
+	adaptiveMode bool
 }
 
 type tokenBucket struct {
@@ -26,6 +29,10 @@ type tokenBucket struct {
 }
 
 func NewRateLimiter(limit, burst int, ttl time.Duration, audit *audit.Logger) *RateLimiter {
+	return NewRateLimiterWithLoad(limit, burst, ttl, audit, nil, false)
+}
+
+func NewRateLimiterWithLoad(limit, burst int, ttl time.Duration, audit *audit.Logger, loadMonitor *load.Monitor, adaptiveMode bool) *RateLimiter {
 	if limit <= 0 {
 		limit = 120
 	}
@@ -37,15 +44,34 @@ func NewRateLimiter(limit, burst int, ttl time.Duration, audit *audit.Logger) *R
 	}
 
 	rl := &RateLimiter{
-		buckets:  make(map[string]*tokenBucket),
-		limit:    limit,
-		burst:    burst,
-		ttl:      ttl,
-		audit:    audit,
-		stopChan: make(chan struct{}),
+		buckets:      make(map[string]*tokenBucket),
+		limit:        limit,
+		burst:        burst,
+		ttl:          ttl,
+		audit:        audit,
+		stopChan:     make(chan struct{}),
+		loadMonitor:  loadMonitor,
+		adaptiveMode: adaptiveMode,
 	}
 	go rl.cleanupLoop()
 	return rl
+}
+
+func (rl *RateLimiter) effectiveLimit() int {
+	if !rl.adaptiveMode || rl.loadMonitor == nil || !rl.loadMonitor.IsOverloaded() {
+		return rl.limit
+	}
+
+	overloadFactor := float64(rl.loadMonitor.ActiveConnections()) / float64(10000)
+	if overloadFactor > 1.0 {
+		overloadFactor = 1.0
+	}
+
+	reduced := int(float64(rl.limit) * (1.0 - overloadFactor*0.5))
+	if reduced < 1 {
+		reduced = 1
+	}
+	return reduced
 }
 
 func (rl *RateLimiter) Allow(apiKey string) bool {
@@ -65,7 +91,8 @@ func (rl *RateLimiter) Allow(apiKey string) bool {
 	}
 
 	elapsed := now.Sub(bucket.lastTime).Seconds()
-	refillRate := float64(rl.limit) / 60.0 
+	effectiveLimit := float64(rl.effectiveLimit())
+	refillRate := effectiveLimit / 60.0
 	bucket.tokens += elapsed * refillRate
 	if bucket.tokens > float64(rl.burst) {
 		bucket.tokens = float64(rl.burst)
@@ -94,7 +121,7 @@ func (rl *RateLimiter) GetRemaining(apiKey string) float64 {
 
 	now := time.Now()
 	elapsed := now.Sub(bucket.lastTime).Seconds()
-	refillRate := float64(rl.limit) / 60.0
+	refillRate := float64(rl.effectiveLimit()) / 60.0
 	tokens := bucket.tokens + elapsed*refillRate
 	if tokens > float64(rl.burst) {
 		tokens = float64(rl.burst)
@@ -152,5 +179,5 @@ func (rl *RateLimiter) RateLimitMiddleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
-	})
+	}
 }

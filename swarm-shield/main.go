@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"swarm-shield/internal/audit"
 	"swarm-shield/internal/auth"
 	"swarm-shield/internal/config"
+	"swarm-shield/internal/load"
 	"swarm-shield/internal/metrics"
 	"swarm-shield/internal/pow"
 	"swarm-shield/internal/ratelimit"
@@ -45,6 +47,7 @@ var (
 	metricTracker *metrics.Metrics
 	rateLimiter   *ratelimit.RateLimiter
 	store         *storage.Store
+	loadMonitor   *load.Monitor
 
 	validator      = pow.NewValidator()
 	difficultyCalc = pow.NewDifficultyCalculator()
@@ -86,7 +89,7 @@ type APIServer struct {
 	server *http.Server
 }
 
-func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter) *APIServer {
+func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter, loadMonitor *load.Monitor) *APIServer {
 	mux := http.NewServeMux()
 
 	s := &APIServer{
@@ -96,7 +99,7 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 			ReadTimeout:  cfg.Server.ReadTimeout,
 			WriteTimeout: cfg.Server.WriteTimeout,
 			IdleTimeout:  cfg.Server.IdleTimeout,
-			MaxHeaderBytes: 1 << 20, 
+			MaxHeaderBytes: 1 << 20,
 		},
 	}
 
@@ -107,7 +110,7 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	peersHandler := http.HandlerFunc(s.handlePeers)
 	loginHandler := http.HandlerFunc(s.handleLogin)
 	keysHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
-	dataHandler := authManager.AuthMiddleware(rateLimiter.RateLimitMiddleware(http.HandlerFunc(s.handleData)))
+	dataHandler := authManager.AuthMiddleware(rateLimiter.RateLimitMiddleware(loadAwareHandler(metricTracker, loadMonitor, http.HandlerFunc(s.handleData))))
 	statsHandler := http.HandlerFunc(s.handleStats)
 	wsHandler := http.HandlerFunc(s.handleWebSocket)
 	healthHandler := http.HandlerFunc(s.handleHealth)
@@ -133,6 +136,28 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	mux.Handle("/", requestID(secureHeaders(cors(http.FileServer(http.Dir("./public"))))))
 
 	return s
+}
+
+func loadAwareHandler(metrics *metrics.Metrics, monitor *load.Monitor, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !monitor.AllowRequest() {
+			metrics.LoadSheddingRejects.Inc()
+			w.Header().Set("Retry-After", "60")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "server overloaded",
+				"message": "server is under heavy load, retry later",
+			})
+			return
+		}
+		defer monitor.ReleaseConnection()
+
+		next.ServeHTTP(w, r)
+
+		if r.URL.Path == "/api/data" {
+			monitor.RecordSuccess()
+		}
+	})
 }
 
 func (s *APIServer) Start() error {
@@ -420,18 +445,33 @@ func (s *APIServer) handleData(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats := map[string]interface{}{
-		"totalRequests":   atomic.LoadUint64(&totalRequests),
+		"totalRequests":    atomic.LoadUint64(&totalRequests),
 		"activePowProofs": atomic.LoadUint64(&activePoWProofs),
-		"p2pHits":         atomic.LoadUint64(&p2pHits),
-		"originHits":      atomic.LoadUint64(&originHits),
-		"currentRPS":      difficultyCalc.GetCurrentRPS(),
+		"p2pHits":          atomic.LoadUint64(&p2pHits),
+		"originHits":       atomic.LoadUint64(&originHits),
+		"currentRPS":       difficultyCalc.GetCurrentRPS(),
 		"currentDifficulty": difficultyCalc.CalculateDifficulty(),
-		"peerCount":       signalingStore.PeerCount(),
+		"peerCount":        signalingStore.PeerCount(),
 	}
+
+	if loadMonitor != nil {
+		for k, v := range loadMonitor.Stats() {
+			stats[k] = v
+		}
+	}
+
 	respondJSON(w, http.StatusOK, stats)
 }
 
 func (s *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if loadMonitor != nil && loadMonitor.IsOverloaded() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "overloaded",
+		})
+		return
+	}
+
 	respondJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
 }
 
@@ -551,13 +591,19 @@ func main() {
 
 	metricTracker = metrics.NewMetrics()
 
+	loadMonitor = load.NewMonitor(load.DefaultConfig())
+
 	authManager = auth.NewManager(cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry, cfg.Auth.Issuer, cfg.Auth.Audience)
 
-	rateLimiter = ratelimit.NewRateLimiter(
+	difficultyCalc = pow.NewDifficultyCalculatorWithLoad(loadMonitor)
+
+	rateLimiter = ratelimit.NewRateLimiterWithLoad(
 		cfg.RateLimit.RequestsPerMinute,
 		cfg.RateLimit.BurstSize,
 		cfg.RateLimit.TTL,
 		auditLogger,
+		loadMonitor,
+		cfg.Load.Enabled,
 	)
 	defer rateLimiter.Stop()
 
@@ -570,7 +616,7 @@ func main() {
 	if cfg.Postgres.Enabled && cfg.Postgres.URL != "" {
 		store, storageErr = storage.NewStore(cfg.Postgres.URL, cfg.Postgres.MaxConns, cfg.Postgres.IdleConns)
 		if storageErr != nil {
-			logger.Warn("failed to initialize storage, running without persistence", zap.Error(storageErr))
+			logger.Warn("failed to initialize storage, running without persistence", zap.Error(err))
 		} else {
 			defer store.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -581,7 +627,9 @@ func main() {
 		}
 	}
 
-	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter)
+	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter, loadMonitor)
+		loadMonitor,
+		cfg.Load.Enabled,
 
 	auditLogger.Log(nil, &audit.Event{
 		ID:     generateID(),
@@ -600,6 +648,20 @@ func main() {
 	go func() {
 		if err := server.Start(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("server failed", zap.Error(err))
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if metricTracker.ServerGoroutines != nil {
+				metricTracker.ServerGoroutines.Set(float64(runtime.NumGoroutine()))
+			}
+			if loadMonitor != nil && metricTracker.CircuitBreakerState != nil {
+				state := float64(loadMonitor.State())
+				metricTracker.CircuitBreakerState.Set(state)
+			}
 		}
 	}()
 

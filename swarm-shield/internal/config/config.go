@@ -18,6 +18,7 @@ type Config struct {
 	Metrics    MetricsConfig
 	TLS        TLSConfig
 	Features   FeatureFlags
+	Load       LoadConfig
 }
 
 type ServerConfig struct {
@@ -62,10 +63,10 @@ type RedisConfig struct {
 }
 
 type PostgresConfig struct {
-	Enabled    bool
-	URL        string
-	MaxConns   int
-	IdleConns  int
+	Enabled   bool
+	URL       string
+	MaxConns  int
+	IdleConns int
 }
 
 type RateLimitConfig struct {
@@ -95,6 +96,16 @@ type FeatureFlags struct {
 	EnableMetrics   bool
 }
 
+type LoadConfig struct {
+	Enabled           bool
+	FailureThreshold  int
+	SuccessThreshold  int
+	Cooldown          time.Duration
+	MaxActiveConns    int
+	GoroutineLimit    int
+	GoroutineWarn     int
+}
+
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -103,7 +114,7 @@ func Load() *Config {
 			ReadTimeout:     getDurationEnv("READ_TIMEOUT", 5*time.Second),
 			WriteTimeout:    getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
 			IdleTimeout:     getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
-			MaxRequestSize:  getInt64Env("MAX_REQUEST_SIZE", 1<<20), 
+			MaxRequestSize:  getInt64Env("MAX_REQUEST_SIZE", 1<<20),
 			RequestTimeout:  getDurationEnv("REQUEST_TIMEOUT", 15*time.Second),
 		},
 		Auth: AuthConfig{
@@ -159,6 +170,15 @@ func Load() *Config {
 			EnableWebSocket: getBoolEnv("FEATURE_WEBSOCKET", true),
 			EnableAuditLog:  getBoolEnv("FEATURE_AUDIT_LOG", true),
 			EnableMetrics:   getBoolEnv("FEATURE_METRICS", true),
+		},
+		Load: LoadConfig{
+			Enabled:          getBoolEnv("LOAD_PROTECTION_ENABLED", true),
+			FailureThreshold: getIntEnv("LOAD_CIRCUIT_FAILURE_THRESHOLD", 5),
+			SuccessThreshold: getIntEnv("LOAD_CIRCUIT_SUCCESS_THRESHOLD", 2),
+			Cooldown:         getDurationEnv("LOAD_CIRCUIT_COOLDOWN", 5*time.Second),
+			MaxActiveConns:   getIntEnv("LOAD_MAX_ACTIVE_CONNECTIONS", 10000),
+			GoroutineLimit:   getIntEnv("LOAD_GOROUTINE_LIMIT", 50000),
+			GoroutineWarn:    getIntEnv("LOAD_GOROUTINE_WARN", 20000),
 		},
 	}
 }

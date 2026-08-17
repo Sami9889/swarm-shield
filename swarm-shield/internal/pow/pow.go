@@ -8,6 +8,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"swarm-shield/internal/load"
 )
 
 type Challenge struct {
@@ -129,14 +131,27 @@ type DifficultyCalculator struct {
 	bucketSize  time.Duration
 	windowSize  time.Duration
 	lastTick    time.Time
+	loadMonitor *load.Monitor
 }
 
 func NewDifficultyCalculator() *DifficultyCalculator {
 	dc := &DifficultyCalculator{
-		rpsBuckets: make([]uint64, 0),
-		bucketSize: 1 * time.Second,
-		windowSize: 5 * time.Second,
+		rpsBuckets:  make([]uint64, 0),
+		bucketSize:  1 * time.Second,
+		windowSize:  5 * time.Second,
 		lastTick:   time.Now(),
+	}
+	go dc.tickerLoop()
+	return dc
+}
+
+func NewDifficultyCalculatorWithLoad(monitor *load.Monitor) *DifficultyCalculator {
+	dc := &DifficultyCalculator{
+		rpsBuckets:  make([]uint64, 0),
+		bucketSize:  1 * time.Second,
+		windowSize:  5 * time.Second,
+		lastTick:   time.Now(),
+		loadMonitor: monitor,
 	}
 	go dc.tickerLoop()
 	return dc
@@ -166,20 +181,30 @@ func (dc *DifficultyCalculator) CalculateDifficulty() int {
 
 	rps := float64(total) / dc.windowSize.Seconds()
 
+	difficulty := 1
 	switch {
 	case rps < 100:
-		return 1
+		difficulty = 1
 	case rps < 500:
-		return 2
+		difficulty = 2
 	case rps < 1000:
-		return 3
+		difficulty = 3
 	case rps < 5000:
-		return 4
+		difficulty = 4
 	case rps < 20000:
-		return 5
+		difficulty = 5
 	default:
-		return 6
+		difficulty = 6
 	}
+
+	if dc.loadMonitor != nil && dc.loadMonitor.IsOverloaded() {
+		difficulty = difficulty + 2
+		if difficulty > 6 {
+			difficulty = 6
+		}
+	}
+
+	return difficulty
 }
 
 func (dc *DifficultyCalculator) GetCurrentRPS() float64 {

@@ -9,16 +9,19 @@ import (
 )
 
 type Metrics struct {
-	RequestsTotal      prometheus.Counter
-	RequestDuration    prometheus.Histogram
-	ActiveConnections  prometheus.Gauge
-	PoWVerified        prometheus.Counter
-	P2PConnections     prometheus.Gauge
-	RateLimitHits      prometheus.Counter
-	AuthFailures       prometheus.Counter
-	ActivePeers        prometheus.Gauge
-	OriginFetches      prometheus.Counter
-	WebSocketMessages  prometheus.Counter
+	RequestsTotal       prometheus.Counter
+	RequestDuration     prometheus.Histogram
+	ActiveConnections   prometheus.Gauge
+	PoWVerified         prometheus.Counter
+	P2PConnections      prometheus.Gauge
+	RateLimitHits       prometheus.Counter
+	AuthFailures        prometheus.Counter
+	ActivePeers         prometheus.Gauge
+	OriginFetches       prometheus.Counter
+	WebSocketMessages   prometheus.Counter
+	CircuitBreakerState prometheus.Gauge
+	ServerGoroutines    prometheus.Gauge
+	LoadSheddingRejects prometheus.Counter
 }
 
 func NewMetrics() *Metrics {
@@ -73,6 +76,21 @@ func NewMetrics() *Metrics {
 	m.WebSocketMessages = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "swarm_shield_websocket_messages_total",
 		Help: "Total number of WebSocket messages processed",
+	})
+
+	m.CircuitBreakerState = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "swarm_shield_circuit_breaker_state",
+		Help: "Circuit breaker state: 0=closed, 1=open, 2=half-open",
+	})
+
+	m.ServerGoroutines = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "swarm_shield_server_goroutines",
+		Help: "Current number of goroutines in the server process",
+	})
+
+	m.LoadSheddingRejects = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "swarm_shield_load_shedding_rejects_total",
+		Help: "Total number of requests rejected due to server overload",
 	})
 
 	return m
