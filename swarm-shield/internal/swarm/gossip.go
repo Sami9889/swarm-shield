@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -41,6 +40,7 @@ type GossipProtocol struct {
 	secretKey   []byte
 	metrics     *metrics.Metrics
 	stopChan    chan struct{}
+	stopOnce    sync.Once
 	backoffMap  map[string]time.Time
 }
 
@@ -69,12 +69,20 @@ func NewGossipProtocol(config ConsensusConfig, secretKey []byte, m *metrics.Metr
 }
 
 func (g *GossipProtocol) Start() {
+	if g.config.GossipInterval <= 0 {
+		g.config.GossipInterval = 2 * time.Second
+	}
+	if g.config.AntiEntropyInterval <= 0 {
+		g.config.AntiEntropyInterval = 30 * time.Second
+	}
 	go g.gossipLoop()
 	go g.antiEntropyLoop()
 }
 
 func (g *GossipProtocol) Stop() {
-	close(g.stopChan)
+	g.stopOnce.Do(func() {
+		close(g.stopChan)
+	})
 }
 
 func (g *GossipProtocol) AddPeer(id, address string, trustLevel TrustLevel, key []byte) {
@@ -191,7 +199,10 @@ func (g *GossipProtocol) RecordFailure(peerID string) {
 		if p.Backoff == 0 {
 			p.Backoff = 1 * time.Second
 		} else {
-			p.Backoff = time.Duration(math.Min(float64(p.Backoff)*2, float64(30*time.Second)))
+			p.Backoff *= 2
+			if p.Backoff > 30*time.Second {
+				p.Backoff = 30 * time.Second
+			}
 		}
 		g.backoffMap[peerID] = time.Now().Add(p.Backoff)
 		p.LastSeen = time.Now()
@@ -208,6 +219,20 @@ func (g *GossipProtocol) RecordSuccess(peerID string) {
 		delete(g.backoffMap, peerID)
 		p.LastSeen = time.Now()
 	}
+}
+
+func signingPayload(update ScoreUpdate) ([]byte, error) {
+	return json.Marshal(struct {
+		IP    string    `json:"ip"`
+		Score float64   `json:"score"`
+		TS    time.Time `json:"ts"`
+		Peer  string    `json:"peer"`
+	}{
+		IP:    update.IP,
+		Score: update.Score,
+		TS:    update.Timestamp,
+		Peer:  update.PeerID,
+	})
 }
 
 func (g *GossipProtocol) CreateScoreUpdate(ip string, score float64, peerID string) ScoreUpdate {
@@ -262,47 +287,3 @@ func (g *GossipProtocol) sendUpdate(p *PeerInfo, update ScoreUpdate) {
 	g.mu.Unlock()
 }
 
-func (g *GossipProtocol) HandleMessage(data []byte, fromPeer string) error {
-	if len(data) > 8192 {
-		return fmt.Errorf("message too large: %d bytes", len(data))
-	}
-	var update ScoreUpdate
-	if err := json.Unmarshal(data, &update); err != nil {
-		return err
-	}
-
-	key := g.secretKey
-	if fromPeer != "" {
-		g.mu.RLock()
-		if peer, exists := g.peers[fromPeer]; exists && len(peer.Key) > 0 {
-			key = peer.Key
-		}
-		g.mu.RUnlock()
-	}
-
-	if err := verifySignatureWithKey(update, key); err != nil {
-		return fmt.Errorf("invalid signature: %w", err)
-	}
-
-	if fromPeer != "" {
-		g.RecordSuccess(fromPeer)
-	}
-	return nil
-}
-
-func verifySignatureWithKey(update ScoreUpdate, key []byte) error {
-	if len(update.Signature) == 0 {
-		return fmt.Errorf("missing signature")
-	}
-	data, err := signingPayload(update)
-	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
-	}
-	mac := hmac.New(sha256.New, key)
-	mac.Write(data)
-	expected := mac.Sum(nil)
-	if !hmac.Equal(expected, update.Signature) {
-		return fmt.Errorf("signature mismatch")
-	}
-	return nil
-}

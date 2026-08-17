@@ -1,6 +1,7 @@
 package load
 
 import (
+	"math"
 	"runtime"
 	"sync"
 	"time"
@@ -74,6 +75,9 @@ func NewMonitor(cfg Config) *Monitor {
 	}
 	if cfg.MaxActiveConnections <= 0 {
 		cfg.MaxActiveConnections = DefaultConfig().MaxActiveConnections
+	}
+	if cfg.MaxActiveConnections > math.MaxInt32 {
+		cfg.MaxActiveConnections = math.MaxInt32
 	}
 	if cfg.HalfOpenMaxRequests <= 0 {
 		cfg.HalfOpenMaxRequests = DefaultConfig().HalfOpenMaxRequests

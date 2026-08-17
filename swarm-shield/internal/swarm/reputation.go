@@ -31,7 +31,6 @@ type ReputationEntry struct {
 	RequestPattern  float64
 	PoWCompliance   float64
 	ConnectionScore float64
-	BehavioralHash  string
 	LastUpdated     time.Time
 	LastDecay       time.Time
 	Blocked         bool
@@ -105,7 +104,6 @@ func (rs *ReputationScorer) Score(ip string, metrics RequestMetrics) float64 {
 	entry.RequestPattern = rs.scoreRequestPattern(metrics)
 	entry.PoWCompliance = rs.scorePoWCompliance(metrics)
 	entry.ConnectionScore = rs.scoreConnectionBehavior(metrics)
-	entry.BehavioralHash = rs.computeBehavioralHash(metrics)
 
 	newScore := entry.RequestPattern*0.4 + entry.PoWCompliance*0.35 + entry.ConnectionScore*0.25
 	if newScore > rs.config.MaxScore {
@@ -163,13 +161,6 @@ func (rs *ReputationScorer) scoreConnectionBehavior(metrics RequestMetrics) floa
 		score = 1.0
 	}
 	return score
-}
-
-func (rs *ReputationScorer) computeBehavioralHash(metrics RequestMetrics) string {
-	data := metrics.BehavioralFingerprint()
-	h := hmac.New(sha256.New, rs.secretKey)
-	h.Write([]byte(data))
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (rs *ReputationScorer) Decay() {

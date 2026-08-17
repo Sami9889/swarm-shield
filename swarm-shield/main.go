@@ -892,7 +892,7 @@ func main() {
 	if cfg.Postgres.Enabled && cfg.Postgres.URL != "" {
 		store, storageErr = storage.NewStore(cfg.Postgres.URL, cfg.Postgres.MaxConns, cfg.Postgres.IdleConns)
 		if storageErr != nil {
-			logger.Warn("failed to initialize storage, running without persistence", zap.Error(err))
+			logger.Warn("failed to initialize storage, running without persistence", zap.Error(storageErr))
 		} else {
 			defer store.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
