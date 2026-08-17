@@ -22,6 +22,7 @@ type SignalingStore struct {
 	peers    map[string]*PeerInfo
 	ttl      time.Duration
 	stopChan chan struct{}
+	maxPeers int
 }
 
 func NewSignalingStore(ttl time.Duration) *SignalingStore {
@@ -32,9 +33,18 @@ func NewSignalingStore(ttl time.Duration) *SignalingStore {
 		peers:    make(map[string]*PeerInfo),
 		ttl:      ttl,
 		stopChan: make(chan struct{}),
+		maxPeers: 10000,
 	}
 	go store.evictionLoop()
 	return store
+}
+
+func (s *SignalingStore) SetMaxPeers(max int) {
+	if max > 0 {
+		s.mu.Lock()
+		s.maxPeers = max
+		s.mu.Unlock()
+	}
 }
 
 func (s *SignalingStore) RegisterPeer(id string) *PeerInfo {
@@ -44,6 +54,10 @@ func (s *SignalingStore) RegisterPeer(id string) *PeerInfo {
 	if p, exists := s.peers[id]; exists {
 		p.LastSeen = time.Now()
 		return p
+	}
+
+	if s.maxPeers > 0 && len(s.peers) >= s.maxPeers {
+		return nil
 	}
 
 	peer := &PeerInfo{

@@ -87,6 +87,10 @@ components:
           type: integer
         peerCount:
           type: integer
+          description: Number of signaling peers
+        consensusPeerCount:
+          type: integer
+          description: Number of consensus peers
 
 paths:
   /api/challenge:

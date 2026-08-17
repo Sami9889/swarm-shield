@@ -18,6 +18,8 @@ type Config struct {
 	Metrics    MetricsConfig
 	TLS        TLSConfig
 	Features   FeatureFlags
+	Load       LoadConfig
+	Consensus  ConsensusConfig
 }
 
 type ServerConfig struct {
@@ -28,6 +30,8 @@ type ServerConfig struct {
 	IdleTimeout     time.Duration
 	MaxRequestSize  int64
 	RequestTimeout  time.Duration
+	TrustedProxies  []string
+	ReadHeaderTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -62,10 +66,10 @@ type RedisConfig struct {
 }
 
 type PostgresConfig struct {
-	Enabled    bool
-	URL        string
-	MaxConns   int
-	IdleConns  int
+	Enabled   bool
+	URL       string
+	MaxConns  int
+	IdleConns int
 }
 
 type RateLimitConfig struct {
@@ -73,6 +77,8 @@ type RateLimitConfig struct {
 	RequestsPerMinute int
 	BurstSize         int
 	TTL               time.Duration
+	MaxKeys           int
+	KeyPrefix         string
 }
 
 type MetricsConfig struct {
@@ -95,16 +101,43 @@ type FeatureFlags struct {
 	EnableMetrics   bool
 }
 
+type LoadConfig struct {
+	Enabled           bool
+	FailureThreshold  int
+	SuccessThreshold  int
+	Cooldown          time.Duration
+	MaxActiveConns    int
+	GoroutineLimit    int
+	GoroutineWarn     int
+}
+
+type ConsensusConfig struct {
+	Enabled             bool
+	Secret              string
+	Threshold           float64
+	DecayInterval       time.Duration
+	DecayRate           float64
+	GossipInterval      time.Duration
+	MaxScore            float64
+	MinScore            float64
+	PeerTimeout         time.Duration
+	AntiEntropyInterval time.Duration
+	MaxReputations      int
+	MaxPeers            int
+}
+
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Host:            getEnv("HOST", "0.0.0.0"),
-			Port:            getEnv("PORT", "8080"),
-			ReadTimeout:     getDurationEnv("READ_TIMEOUT", 5*time.Second),
-			WriteTimeout:    getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
-			IdleTimeout:     getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
-			MaxRequestSize:  getInt64Env("MAX_REQUEST_SIZE", 1<<20), 
-			RequestTimeout:  getDurationEnv("REQUEST_TIMEOUT", 15*time.Second),
+			Host:             getEnv("HOST", "0.0.0.0"),
+			Port:             getEnv("PORT", "8080"),
+			ReadTimeout:      getDurationEnv("READ_TIMEOUT", 5*time.Second),
+			WriteTimeout:     getDurationEnv("WRITE_TIMEOUT", 10*time.Second),
+			IdleTimeout:      getDurationEnv("IDLE_TIMEOUT", 30*time.Second),
+			MaxRequestSize:   getInt64Env("MAX_REQUEST_SIZE", 1<<20),
+			RequestTimeout:   getDurationEnv("REQUEST_TIMEOUT", 15*time.Second),
+			TrustedProxies:   getStringSliceEnv("TRUSTED_PROXIES", []string{"127.0.0.1", "::1"}),
+			ReadHeaderTimeout: getDurationEnv("READ_HEADER_TIMEOUT", 2*time.Second),
 		},
 		Auth: AuthConfig{
 			JWTSecret:       os.Getenv("JWT_SECRET"),
@@ -142,6 +175,8 @@ func Load() *Config {
 			RequestsPerMinute: getIntEnv("RATE_LIMIT_RPM", 120),
 			BurstSize:         getIntEnv("RATE_LIMIT_BURST", 20),
 			TTL:               getDurationEnv("RATE_LIMIT_TTL", 1*time.Minute),
+			MaxKeys:           getIntEnv("RATE_LIMIT_MAX_KEYS", 100000),
+			KeyPrefix:         getEnv("RATE_LIMIT_KEY_PREFIX", ""),
 		},
 		Metrics: MetricsConfig{
 			Enabled:  getBoolEnv("METRICS_ENABLED", true),
@@ -159,6 +194,29 @@ func Load() *Config {
 			EnableWebSocket: getBoolEnv("FEATURE_WEBSOCKET", true),
 			EnableAuditLog:  getBoolEnv("FEATURE_AUDIT_LOG", true),
 			EnableMetrics:   getBoolEnv("FEATURE_METRICS", true),
+		},
+		Load: LoadConfig{
+			Enabled:          getBoolEnv("LOAD_PROTECTION_ENABLED", true),
+			FailureThreshold: getIntEnv("LOAD_CIRCUIT_FAILURE_THRESHOLD", 5),
+			SuccessThreshold: getIntEnv("LOAD_CIRCUIT_SUCCESS_THRESHOLD", 2),
+			Cooldown:         getDurationEnv("LOAD_CIRCUIT_COOLDOWN", 5*time.Second),
+			MaxActiveConns:   getIntEnv("LOAD_MAX_ACTIVE_CONNECTIONS", 10000),
+			GoroutineLimit:   getIntEnv("LOAD_GOROUTINE_LIMIT", 50000),
+			GoroutineWarn:    getIntEnv("LOAD_GOROUTINE_WARN", 20000),
+		},
+		Consensus: ConsensusConfig{
+			Enabled:             getBoolEnv("CONSENSUS_ENABLED", false),
+			Secret:              os.Getenv("CONSENSUS_SECRET"),
+			Threshold:           getFloat64Env("CONSENSUS_THRESHOLD", 0.75),
+			DecayInterval:       getDurationEnv("CONSENSUS_DECAY_INTERVAL", 5*time.Minute),
+			DecayRate:           getFloat64Env("CONSENSUS_DECAY_RATE", 0.95),
+			GossipInterval:      getDurationEnv("CONSENSUS_GOSSIP_INTERVAL", 2*time.Second),
+			MaxScore:            getFloat64Env("CONSENSUS_MAX_SCORE", 1.0),
+			MinScore:            getFloat64Env("CONSENSUS_MIN_SCORE", 0.0),
+			PeerTimeout:         getDurationEnv("CONSENSUS_PEER_TIMEOUT", 30*time.Second),
+			AntiEntropyInterval: getDurationEnv("CONSENSUS_ANTI_ENTROPY_INTERVAL", 30*time.Second),
+			MaxReputations:      getIntEnv("CONSENSUS_MAX_REPUTATIONS", 1000000),
+			MaxPeers:            getIntEnv("CONSENSUS_MAX_PEERS", 1000),
 		},
 	}
 }
@@ -187,6 +245,15 @@ func getInt64Env(key string, defaultVal int64) int64 {
 	if val := os.Getenv(key); val != "" {
 		if i, err := strconv.ParseInt(val, 10, 64); err == nil {
 			return i
+		}
+	}
+	return defaultVal
+}
+
+func getFloat64Env(key string, defaultVal float64) float64 {
+	if val := os.Getenv(key); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return f
 		}
 	}
 	return defaultVal

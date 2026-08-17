@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,9 +20,12 @@ const (
 	APIKeyPrefix = "swarm-"
 )
 
+var apiKeyRegexp = regexp.MustCompile("^[a-f0-9]+$")
+
 type APIKey struct {
 	Key       string
 	Name      string
+	Role      string
 	CreatedAt time.Time
 	LastUsed  time.Time
 	Active    bool
@@ -30,6 +34,7 @@ type APIKey struct {
 type Claims struct {
 	APIKey string `json:"apiKey"`
 	Name   string `json:"name"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -42,9 +47,13 @@ type Manager struct {
 	audience   string
 }
 
-func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string) *Manager {
+func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string) (*Manager, error) {
 	if jwtSecret == "" {
-		jwtSecret = generateDefaultSecret()
+		var err error
+		jwtSecret, err = generateDefaultSecret()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate JWT secret: %w", err)
+		}
 	}
 	if jwtTTL == 0 {
 		jwtTTL = 24 * time.Hour
@@ -63,13 +72,13 @@ func NewManager(jwtSecret string, jwtTTL time.Duration, issuer, audience string)
 		issuer:    issuer,
 		audience:  audience,
 	}
-	return m
+	return m, nil
 }
 
 func (m *Manager) GenerateAPIKey(name string) string {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		panic(fmt.Sprintf("failed to generate API key: %v", err))
+		return ""
 	}
 
 	rawSum := sha256.Sum256(raw)
@@ -91,16 +100,21 @@ func (m *Manager) ValidateAPIKey(key string) bool {
 	if !strings.HasPrefix(key, APIKeyPrefix) {
 		return false
 	}
-
-	m.mu.RLock()
-	apiKey, exists := m.apiKeys[key]
-	m.mu.RUnlock()
-
-	if !exists || !apiKey.Active {
+	if len(key) > 256 {
+		return false
+	}
+	if !apiKeyRegexp.MatchString(key[len(APIKeyPrefix):]) {
 		return false
 	}
 
+	m.mu.Lock()
+	apiKey, exists := m.apiKeys[key]
+	if !exists || !apiKey.Active {
+		m.mu.Unlock()
+		return false
+	}
 	apiKey.LastUsed = time.Now()
+	m.mu.Unlock()
 	return true
 }
 
@@ -132,8 +146,17 @@ func (m *Manager) ListAPIKeys() []map[string]interface{} {
 }
 
 func (m *Manager) GenerateJWT(apiKey string) (string, error) {
+	m.mu.RLock()
+	key, exists := m.apiKeys[apiKey]
+	m.mu.RUnlock()
+	if !exists {
+		key = &APIKey{Key: apiKey, Role: ""}
+	}
+
 	claims := Claims{
 		APIKey: apiKey,
+		Name:   key.Name,
+		Role:   key.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(m.jwtTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -171,6 +194,33 @@ func (m *Manager) ValidateJWT(tokenString string) (*Claims, error) {
 	}
 
 	return nil, fmt.Errorf("invalid token")
+}
+
+func (m *Manager) AdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey != "" {
+			m.mu.RLock()
+			key, exists := m.apiKeys[apiKey]
+			m.mu.RUnlock()
+			if exists && key.Active && key.Role == "admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, BearerPrefix) {
+			tokenString := strings.TrimPrefix(authHeader, BearerPrefix)
+			claims, err := m.ValidateJWT(tokenString)
+			if err == nil && claims.Role == "admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		respondError(w, http.StatusForbidden, "admin authorization required")
+	})
 }
 
 func (m *Manager) AuthMiddleware(next http.Handler) http.Handler {
@@ -234,12 +284,12 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func generateDefaultSecret() string {
+func generateDefaultSecret() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		panic(fmt.Sprintf("failed to generate JWT secret: %v", err))
+		return "", fmt.Errorf("failed to generate JWT secret: %w", err)
 	}
-	return hex.EncodeToString(raw)
+	return hex.EncodeToString(raw), nil
 }
 
 func respondJSON(w http.ResponseWriter, status int, v interface{}) {
