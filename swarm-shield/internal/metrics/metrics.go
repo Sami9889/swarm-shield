@@ -26,7 +26,6 @@ type Metrics struct {
 	ConsensusGossipMessages  prometheus.Counter
 	ConsensusPeerScore       prometheus.Gauge
 	ConsensusDecayedIPs      prometheus.Counter
-	AuthJWTValidationFailures prometheus.Counter
 	ConfigReloads            prometheus.Counter
 	ActivePowChallenges      prometheus.Gauge
 	RequestBodyBytes         prometheus.Histogram
@@ -127,11 +126,6 @@ func NewMetrics() *Metrics {
 		Help: "Total number of IPs whose reputation score was decayed",
 	})
 
-	m.AuthJWTValidationFailures = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "swarm_shield_auth_jwt_validation_failures_total",
-		Help: "Total number of JWT validation failures",
-	})
-
 	m.ConfigReloads = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "swarm_shield_config_reloads_total",
 		Help: "Total number of configuration reloads",
@@ -182,7 +176,6 @@ func NewMetrics() *Metrics {
 	}, []string{"reason"})
 
 	return m
-}
 }
 
 func (m *Metrics) Middleware(next http.Handler) http.Handler {

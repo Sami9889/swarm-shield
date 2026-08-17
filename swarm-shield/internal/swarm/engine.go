@@ -193,11 +193,11 @@ func generatePeerID() string {
 }
 
 func generateEventID() string {
-	buf := make([]byte, 8)
+	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return time.Now().Format("20060102-150405-") + fmt.Sprintf("%08x", time.Now().UnixNano()&0xFFFFFFFF)
+		return time.Now().Format("20060102-150405-") + fmt.Sprintf("%016x", time.Now().UnixNano())
 	}
-	return time.Now().Format("20060102-150405-") + hex.EncodeToString(buf)
+	return hex.EncodeToString(buf)
 }
 
 func randomString(n int) string {

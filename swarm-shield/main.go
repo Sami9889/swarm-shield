@@ -118,7 +118,7 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	peersHandler := http.HandlerFunc(s.handlePeers)
 	loginHandler := http.HandlerFunc(s.handleLogin)
 	keysHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
-	adminHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleAdmin))
+	adminHandler := authManager.AdminMiddleware(http.HandlerFunc(s.handleAdmin))
 	dataInner := consensusAwareHandler(consensusEngine, http.HandlerFunc(s.handleData))
 	if cfg.Load.Enabled {
 		dataInner = loadAwareHandler(metricTracker, loadMonitor, dataInner)
@@ -171,12 +171,23 @@ func loadAwareHandler(metrics *metrics.Metrics, monitor *load.Monitor, next http
 		}
 		defer monitor.ReleaseConnection()
 
-		next.ServeHTTP(w, r)
+		rw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rw, r)
 
-		if r.URL.Path == "/api/data" && monitor != nil {
+		if r.URL.Path == "/api/data" && monitor != nil && rw.status >= 200 && rw.status < 300 {
 			monitor.RecordSuccess()
 		}
 	})
+}
+
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusResponseWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
 }
 
 func consensusAwareHandler(engine *swarm.ConsensusEngine, next http.Handler) http.Handler {
@@ -857,9 +868,12 @@ func main() {
 	defer rateLimiter.Stop()
 
 	if cfg.Consensus.Enabled && consensusEngine == nil {
+		if cfg.Consensus.Secret == "" {
+			logger.Fatal("CONSENSUS_SECRET is required when consensus is enabled")
+		}
 		consensusEngine = swarm.NewConsensusEngine(
 			cfg.Consensus,
-			[]byte(cfg.Auth.JWTSecret),
+			[]byte(cfg.Consensus.Secret),
 			metricTracker,
 			auditLogger,
 			rateLimiter,
@@ -927,14 +941,17 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	sig := <-quit
-
-	if sig == syscall.SIGHUP {
-		logger.Info("reloading configuration...")
-		newCfg := config.Load()
-		cfg = newCfg
-		metricTracker.ConfigReloads.Inc()
-		logger.Info("configuration reloaded")
+	for {
+		sig := <-quit
+		if sig == syscall.SIGHUP {
+			logger.Info("reloading configuration...")
+			newCfg := config.Load()
+			cfg = newCfg
+			metricTracker.ConfigReloads.Inc()
+			logger.Info("configuration reloaded")
+			continue
+		}
+		break
 	}
 
 	logger.Info("shutting down server...")

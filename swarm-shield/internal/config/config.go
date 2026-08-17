@@ -113,6 +113,7 @@ type LoadConfig struct {
 
 type ConsensusConfig struct {
 	Enabled             bool
+	Secret              string
 	Threshold           float64
 	DecayInterval       time.Duration
 	DecayRate           float64
@@ -205,6 +206,7 @@ func Load() *Config {
 		},
 		Consensus: ConsensusConfig{
 			Enabled:             getBoolEnv("CONSENSUS_ENABLED", false),
+			Secret:              os.Getenv("CONSENSUS_SECRET"),
 			Threshold:           getFloat64Env("CONSENSUS_THRESHOLD", 0.75),
 			DecayInterval:       getDurationEnv("CONSENSUS_DECAY_INTERVAL", 5*time.Minute),
 			DecayRate:           getFloat64Env("CONSENSUS_DECAY_RATE", 0.95),

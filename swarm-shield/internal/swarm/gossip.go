@@ -20,6 +20,20 @@ type ScoreUpdate struct {
 	Signature []byte    `json:"signature"`
 }
 
+func signingPayload(update ScoreUpdate) ([]byte, error) {
+	return json.Marshal(struct {
+		IP    string    `json:"ip"`
+		Score float64   `json:"score"`
+		TS    time.Time `json:"ts"`
+		Peer  string    `json:"peer"`
+	}{
+		IP:    update.IP,
+		Score: update.Score,
+		TS:    update.Timestamp,
+		Peer:  update.PeerID,
+	})
+}
+
 type GossipProtocol struct {
 	mu          sync.RWMutex
 	peers       map[string]*PeerInfo
@@ -198,28 +212,19 @@ func (g *GossipProtocol) RecordSuccess(peerID string) {
 
 func (g *GossipProtocol) CreateScoreUpdate(ip string, score float64, peerID string) ScoreUpdate {
 	timestamp := time.Now()
-	payload, _ := json.Marshal(struct {
-		IP    string    `json:"ip"`
-		Score float64   `json:"score"`
-		TS    time.Time `json:"ts"`
-		Peer  string    `json:"peer"`
-	}{
-		IP:    ip,
-		Score: score,
-		TS:    timestamp,
-		Peer:  peerID,
-	})
-	mac := hmac.New(sha256.New, g.secretKey)
-	mac.Write(payload)
-	signature := mac.Sum(nil)
-
-	return ScoreUpdate{
+	update := ScoreUpdate{
 		IP:        ip,
 		Score:     score,
 		Timestamp: timestamp,
 		PeerID:    peerID,
-		Signature: signature,
 	}
+	payload, err := signingPayload(update)
+	if err == nil {
+		mac := hmac.New(sha256.New, g.secretKey)
+		mac.Write(payload)
+		update.Signature = mac.Sum(nil)
+	}
+	return update
 }
 
 func (g *GossipProtocol) PeerCount() int {
@@ -265,8 +270,39 @@ func (g *GossipProtocol) HandleMessage(data []byte, fromPeer string) error {
 	if err := json.Unmarshal(data, &update); err != nil {
 		return err
 	}
+
+	key := g.secretKey
+	if fromPeer != "" {
+		g.mu.RLock()
+		if peer, exists := g.peers[fromPeer]; exists && len(peer.Key) > 0 {
+			key = peer.Key
+		}
+		g.mu.RUnlock()
+	}
+
+	if err := verifySignatureWithKey(update, key); err != nil {
+		return fmt.Errorf("invalid signature: %w", err)
+	}
+
 	if fromPeer != "" {
 		g.RecordSuccess(fromPeer)
+	}
+	return nil
+}
+
+func verifySignatureWithKey(update ScoreUpdate, key []byte) error {
+	if len(update.Signature) == 0 {
+		return fmt.Errorf("missing signature")
+	}
+	data, err := signingPayload(update)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write(data)
+	expected := mac.Sum(nil)
+	if !hmac.Equal(expected, update.Signature) {
+		return fmt.Errorf("signature mismatch")
 	}
 	return nil
 }

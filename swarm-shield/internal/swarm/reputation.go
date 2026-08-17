@@ -316,17 +316,7 @@ func (rs *ReputationScorer) verifySignature(update ScoreUpdate) error {
 	if len(update.Signature) == 0 {
 		return fmt.Errorf("missing signature")
 	}
-	data, err := json.Marshal(struct {
-		IP    string    `json:"ip"`
-		Score float64   `json:"score"`
-		TS    time.Time `json:"ts"`
-		Peer  string    `json:"peer"`
-	}{
-		IP:    update.IP,
-		Score: update.Score,
-		TS:    update.Timestamp,
-		Peer:  update.PeerID,
-	})
+	data, err := signingPayload(update)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}

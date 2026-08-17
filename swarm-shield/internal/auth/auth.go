@@ -25,6 +25,7 @@ var apiKeyRegexp = regexp.MustCompile("^[a-f0-9]+$")
 type APIKey struct {
 	Key       string
 	Name      string
+	Role      string
 	CreatedAt time.Time
 	LastUsed  time.Time
 	Active    bool
@@ -33,6 +34,7 @@ type APIKey struct {
 type Claims struct {
 	APIKey string `json:"apiKey"`
 	Name   string `json:"name"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -144,8 +146,17 @@ func (m *Manager) ListAPIKeys() []map[string]interface{} {
 }
 
 func (m *Manager) GenerateJWT(apiKey string) (string, error) {
+	m.mu.RLock()
+	key, exists := m.apiKeys[apiKey]
+	m.mu.RUnlock()
+	if !exists {
+		key = &APIKey{Key: apiKey, Role: ""}
+	}
+
 	claims := Claims{
 		APIKey: apiKey,
+		Name:   key.Name,
+		Role:   key.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(m.jwtTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -183,6 +194,33 @@ func (m *Manager) ValidateJWT(tokenString string) (*Claims, error) {
 	}
 
 	return nil, fmt.Errorf("invalid token")
+}
+
+func (m *Manager) AdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey != "" {
+			m.mu.RLock()
+			key, exists := m.apiKeys[apiKey]
+			m.mu.RUnlock()
+			if exists && key.Active && key.Role == "admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, BearerPrefix) {
+			tokenString := strings.TrimPrefix(authHeader, BearerPrefix)
+			claims, err := m.ValidateJWT(tokenString)
+			if err == nil && claims.Role == "admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		respondError(w, http.StatusForbidden, "admin authorization required")
+	})
 }
 
 func (m *Manager) AuthMiddleware(next http.Handler) http.Handler {
