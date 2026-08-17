@@ -117,7 +117,7 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	signalHandler := http.HandlerFunc(s.handleSignal)
 	peersHandler := http.HandlerFunc(s.handlePeers)
 	loginHandler := http.HandlerFunc(s.handleLogin)
-	keysHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
+	keysHandler := rateLimiter.RateLimitMiddleware(authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys)))
 	adminHandler := authManager.AdminMiddleware(http.HandlerFunc(s.handleAdmin))
 	dataInner := consensusAwareHandler(consensusEngine, http.HandlerFunc(s.handleData))
 	if cfg.Load.Enabled {
