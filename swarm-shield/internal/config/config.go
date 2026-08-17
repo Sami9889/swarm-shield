@@ -19,6 +19,7 @@ type Config struct {
 	TLS        TLSConfig
 	Features   FeatureFlags
 	Load       LoadConfig
+	Consensus  ConsensusConfig
 }
 
 type ServerConfig struct {
@@ -106,6 +107,18 @@ type LoadConfig struct {
 	GoroutineWarn     int
 }
 
+type ConsensusConfig struct {
+	Enabled             bool
+	Threshold           float64
+	DecayInterval       time.Duration
+	DecayRate           float64
+	GossipInterval      time.Duration
+	MaxScore            float64
+	MinScore            float64
+	PeerTimeout         time.Duration
+	AntiEntropyInterval time.Duration
+}
+
 func Load() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -180,6 +193,17 @@ func Load() *Config {
 			GoroutineLimit:   getIntEnv("LOAD_GOROUTINE_LIMIT", 50000),
 			GoroutineWarn:    getIntEnv("LOAD_GOROUTINE_WARN", 20000),
 		},
+		Consensus: ConsensusConfig{
+			Enabled:             getBoolEnv("CONSENSUS_ENABLED", false),
+			Threshold:           getFloat64Env("CONSENSUS_THRESHOLD", 0.75),
+			DecayInterval:       getDurationEnv("CONSENSUS_DECAY_INTERVAL", 5*time.Minute),
+			DecayRate:           getFloat64Env("CONSENSUS_DECAY_RATE", 0.95),
+			GossipInterval:      getDurationEnv("CONSENSUS_GOSSIP_INTERVAL", 2*time.Second),
+			MaxScore:            getFloat64Env("CONSENSUS_MAX_SCORE", 1.0),
+			MinScore:            getFloat64Env("CONSENSUS_MIN_SCORE", 0.0),
+			PeerTimeout:         getDurationEnv("CONSENSUS_PEER_TIMEOUT", 30*time.Second),
+			AntiEntropyInterval: getDurationEnv("CONSENSUS_ANTI_ENTROPY_INTERVAL", 30*time.Second),
+		},
 	}
 }
 
@@ -207,6 +231,15 @@ func getInt64Env(key string, defaultVal int64) int64 {
 	if val := os.Getenv(key); val != "" {
 		if i, err := strconv.ParseInt(val, 10, 64); err == nil {
 			return i
+		}
+	}
+	return defaultVal
+}
+
+func getFloat64Env(key string, defaultVal float64) float64 {
+	if val := os.Getenv(key); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return f
 		}
 	}
 	return defaultVal

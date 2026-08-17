@@ -9,19 +9,21 @@ import (
 )
 
 type Metrics struct {
-	RequestsTotal       prometheus.Counter
-	RequestDuration     prometheus.Histogram
-	ActiveConnections   prometheus.Gauge
-	PoWVerified         prometheus.Counter
-	P2PConnections      prometheus.Gauge
-	RateLimitHits       prometheus.Counter
-	AuthFailures        prometheus.Counter
-	ActivePeers         prometheus.Gauge
-	OriginFetches       prometheus.Counter
-	WebSocketMessages   prometheus.Counter
-	CircuitBreakerState prometheus.Gauge
-	ServerGoroutines    prometheus.Gauge
-	LoadSheddingRejects prometheus.Counter
+	RequestsTotal         prometheus.Counter
+	RequestDuration       prometheus.Histogram
+	ActiveConnections     prometheus.Gauge
+	PoWVerified           prometheus.Counter
+	P2PConnections        prometheus.Gauge
+	RateLimitHits         prometheus.Counter
+	AuthFailures          prometheus.Counter
+	ActivePeers           prometheus.Gauge
+	OriginFetches         prometheus.Counter
+	WebSocketMessages     prometheus.Counter
+	CircuitBreakerState   prometheus.Gauge
+	ServerGoroutines      prometheus.Gauge
+	LoadSheddingRejects   prometheus.Counter
+	ConsensusBlocks       prometheus.Counter
+	ConsensusGossipMessages prometheus.Counter
 }
 
 func NewMetrics() *Metrics {
@@ -91,6 +93,16 @@ func NewMetrics() *Metrics {
 	m.LoadSheddingRejects = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "swarm_shield_load_shedding_rejects_total",
 		Help: "Total number of requests rejected due to server overload",
+	})
+
+	m.ConsensusBlocks = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "swarm_shield_consensus_blocks_total",
+		Help: "Total number of IPs blocked by consensus decision",
+	})
+
+	m.ConsensusGossipMessages = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "swarm_shield_consensus_gossip_messages_total",
+		Help: "Total number of gossip messages exchanged",
 	})
 
 	return m

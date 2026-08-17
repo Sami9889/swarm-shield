@@ -31,6 +31,7 @@ import (
 	"swarm-shield/internal/signaling"
 	"swarm-shield/internal/storage"
 	"swarm-shield/internal/lang"
+	"swarm-shield/internal/swarm"
 )
 
 var (
@@ -48,6 +49,7 @@ var (
 	rateLimiter   *ratelimit.RateLimiter
 	store         *storage.Store
 	loadMonitor   *load.Monitor
+	consensusEngine *swarm.ConsensusEngine
 
 	validator      = pow.NewValidator()
 	difficultyCalc = pow.NewDifficultyCalculator()
@@ -89,7 +91,7 @@ type APIServer struct {
 	server *http.Server
 }
 
-func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter, loadMonitor *load.Monitor) *APIServer {
+func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *metrics.Metrics, rateLimiter *ratelimit.RateLimiter, loadMonitor *load.Monitor, consensusEngine *swarm.ConsensusEngine) *APIServer {
 	mux := http.NewServeMux()
 
 	s := &APIServer{
@@ -110,7 +112,7 @@ func NewAPIServer(cfg *config.Config, auditLogger *audit.Logger, metricTracker *
 	peersHandler := http.HandlerFunc(s.handlePeers)
 	loginHandler := http.HandlerFunc(s.handleLogin)
 	keysHandler := authManager.AuthMiddleware(http.HandlerFunc(s.handleKeys))
-	dataHandler := authManager.AuthMiddleware(rateLimiter.RateLimitMiddleware(loadAwareHandler(metricTracker, loadMonitor, http.HandlerFunc(s.handleData))))
+	dataHandler := authManager.AuthMiddleware(rateLimiter.RateLimitMiddleware(loadAwareHandler(metricTracker, loadMonitor, consensusAwareHandler(consensusEngine, http.HandlerFunc(s.handleData)))))
 	statsHandler := http.HandlerFunc(s.handleStats)
 	wsHandler := http.HandlerFunc(s.handleWebSocket)
 	healthHandler := http.HandlerFunc(s.handleHealth)
@@ -160,6 +162,16 @@ func loadAwareHandler(metrics *metrics.Metrics, monitor *load.Monitor, next http
 	})
 }
 
+func consensusAwareHandler(engine *swarm.ConsensusEngine, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if engine != nil && engine.CheckConsensus(extractClientIP(r)) {
+			respondError(w, http.StatusForbidden, "consensus blocked")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *APIServer) Start() error {
 	logger.Info("swarm-shield listening", zap.String("addr", s.server.Addr))
 	return s.server.ListenAndServe()
@@ -168,6 +180,9 @@ func (s *APIServer) Start() error {
 func (s *APIServer) Shutdown(ctx context.Context) error {
 	signalingStore.Stop()
 	rateLimiter.Stop()
+	if consensusEngine != nil {
+		consensusEngine.Stop()
+	}
 	return s.server.Shutdown(ctx)
 }
 
@@ -460,6 +475,12 @@ func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if consensusEngine != nil {
+		for k, v := range consensusEngine.Stats() {
+			stats[k] = v
+		}
+	}
+
 	respondJSON(w, http.StatusOK, stats)
 }
 
@@ -607,6 +628,19 @@ func main() {
 	)
 	defer rateLimiter.Stop()
 
+	if cfg.Consensus.Enabled && consensusEngine == nil {
+		consensusEngine = swarm.NewConsensusEngine(
+			cfg.Consensus,
+			[]byte(cfg.Auth.JWTSecret),
+			metricTracker,
+			auditLogger,
+			rateLimiter,
+		)
+		if consensusEngine != nil {
+			consensusEngine.Start()
+		}
+	}
+
 	policyRegistry := lang.NewRegistry()
 	if err := policyRegistry.LoadDir("./policies"); err != nil {
 		logger.Warn("failed to load SwarmScript policies", zap.Error(err))
@@ -627,7 +661,7 @@ func main() {
 		}
 	}
 
-	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter, loadMonitor)
+	server := NewAPIServer(cfg, auditLogger, metricTracker, rateLimiter, loadMonitor, consensusEngine)
 		loadMonitor,
 		cfg.Load.Enabled,
 
