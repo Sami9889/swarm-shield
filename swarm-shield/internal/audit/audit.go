@@ -2,7 +2,10 @@ package audit
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
